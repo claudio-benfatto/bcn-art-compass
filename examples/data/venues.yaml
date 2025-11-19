@@ -1,0 +1,27 @@
+venues:
+  - id: "ven_macba"
+    name: "Museu d'Art Contemporani de Barcelona (MACBA)"
+    description: |
+      MACBA is Barcelona’s main institution for contemporary art,
+      located in the El Raval district. It hosts rotating exhibitions,
+      installations, and educational activities.
+    address: "Plaça dels Àngels, 1, 08001 Barcelona, Spain"
+    latitude: 41.3833
+    longitude: 2.1667
+    neighborhood: "El Raval"
+
+    type: "museum"
+    website_url: "https://www.macba.cat"
+    opening_hours: "10:00–20:00"
+    price_range: "€€"
+    contact_email: "info@macba.cat"
+    contact_phone: "+34 93 412 08 10"
+
+    tags:
+      - "contemporary"
+      - "museum"
+      - "popular"
+
+    accessibility_notes: |
+      Step-free entrance available via main door. Accessible bathrooms on all floors.
+      Elevators to all exhibition spaces.

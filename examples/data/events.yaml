@@ -1,0 +1,34 @@
+events:
+  - id: "evt_001"
+    title: "Contemporary Sculpture Exhibition"
+
+    description: |
+      A curated exhibition featuring emerging contemporary sculptors
+      from Spain and Europe. Includes installations and experimental
+      materials in collaboration with MACBA.
+
+    genres:
+      - "sculpture"
+      - "contemporary art"
+    artists:
+      - "Maria Torres"
+      - "Luis Martínez"
+
+    venue_id: "ven_macba"
+
+    start_date: "2025-02-15"
+    end_date: "2025-06-10"
+    opening_hours: "10:00–19:00"
+
+    url: "https://example.com/sculpture-exhibition"
+    booking_url: "https://tickets.example.com/sculpture-exhibition"
+    cost_range: "€12–€18"
+
+    accessibility_notes: |
+      Exhibition halls have step-free access.
+      Some large-scale installations may require walking through narrow corridors.
+
+    tags:
+      - "indoors"
+      - "museum"
+      - "family-friendly"

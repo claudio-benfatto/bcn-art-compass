@@ -1,0 +1,13 @@
+[tool.ruff]
+line-length = 120
+fix = true
+select = ["E", "W", "F", "I"]
+
+[tool.black]
+line-length = 120
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
