@@ -65,6 +65,12 @@ class OrchestratorAgent:
             "gallery",
         ]
 
+        # Keywords that indicate preference updates
+        self.preference_keywords = {
+            "like": ["like", "love", "enjoy", "prefer", "favorite", "fan of"],
+            "dislike": ["don't like", "dislike", "hate", "not interested in", "not a fan"],
+        }
+
         log_info("orchestrator_initialized", with_profile_agent=True)
 
     def _should_use_rag(self, query: str) -> bool:
@@ -80,11 +86,39 @@ class OrchestratorAgent:
         query_lower = query.lower()
         return any(keyword in query_lower for keyword in self.recommendation_keywords)
 
-    def process_query(self, query: str, user_id: str = "default_user") -> str:
+    def _detect_intent(self, query: str) -> str:
+        """
+        Detect user intent from query.
+
+        Args:
+            query: User query text
+
+        Returns:
+            Intent type: 'preference_update', 'recommendation', or 'general'
+        """
+        query_lower = query.lower()
+
+        # Check for preference expressions
+        for keyword in self.preference_keywords["like"]:
+            if keyword in query_lower:
+                return "preference_update"
+        for keyword in self.preference_keywords["dislike"]:
+            if keyword in query_lower:
+                return "preference_update"
+
+        # Check for recommendation requests
+        if self._should_use_rag(query):
+            return "recommendation"
+
+        # Default to general
+        return "general"
+
+    async def process_query(self, query: str, user_id: str = "default_user") -> str:
         """
         Process a user query and return a response.
 
-        In Milestone 2, this now loads the user profile and passes it to RAG.
+        In Milestone 2, loads user profile and passes to RAG.
+        In Milestone 3, detects preference updates and extracts them.
 
         Args:
             query: User's natural language query
@@ -95,7 +129,30 @@ class OrchestratorAgent:
         """
         log_info("orchestrator_processing_query", user_id=user_id, query_length=len(query))
 
-        # Load user profile
+        # Detect intent
+        intent = self._detect_intent(query)
+        log_info("intent_detected", user_id=user_id, intent=intent)
+
+        # Handle preference updates
+        if intent == "preference_update":
+            profile = await self.profile_agent.extract_preferences(user_id, query)
+            log_info(
+                "preference_extracted_and_saved",
+                user_id=user_id,
+                favorite_genres=len(profile.favorite_genres),
+                disliked_genres=len(profile.disliked_genres),
+                favorite_artists=len(profile.favorite_artists),
+            )
+            return (
+                "Got it! I've updated your preferences. "
+                f"You now have {len(profile.favorite_genres)} favorite genre(s) "
+                f"and {len(profile.disliked_genres)} disliked genre(s). "
+                "Your future recommendations will reflect these preferences!"
+            )
+
+        # Load user profile for other queries
+        profile = self.profile_agent.load_profile(user_id)
+        # Load user profile for other queries
         profile = self.profile_agent.load_profile(user_id)
         log_info(
             "profile_loaded_for_query",
@@ -104,7 +161,7 @@ class OrchestratorAgent:
         )
 
         # Decide routing
-        use_rag = self._should_use_rag(query)
+        use_rag = intent == "recommendation"
 
         log_agent_routing(
             agent_name="orchestrator",

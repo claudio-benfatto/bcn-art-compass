@@ -108,11 +108,19 @@ Profile Memory + Profile Agent + Retrieval in Recommendation Flow
 - Unit test for JSON memory
 - Integration: profile load influences ranking (e.g., favor sculpture)
 
-✔️ Working Checkpoint 2
+✅ **Milestone 2 COMPLETE**
+- ✅ JSON memory storage with MemoryStorage class
+- ✅ UserProfile Pydantic model with preferences tracking
+- ✅ ProfileAgent for loading/saving profiles
+- ✅ Orchestrator integration with profile loading
+- ✅ Profile-aware RAG scoring (+0.2 boost, -0.3 penalty)
+- ✅ 9 memory unit tests (28 total tests passing)
 
-Working local demo with basic profile-based recommendations.
+Working local demo with profile-based recommendations.
 
-## Milestone 3 — Day 5–6
+---
+
+## Milestone 3 — Day 5–6 ✅ COMPLETE
 Preference Extraction + Updating Memory
 
 ### Goal
@@ -123,25 +131,53 @@ Example:
 User → Orchestrator → Profile Agent (extract+update) → saved memory
 
 ### Tasks
-### Profile Agent
-- Implement preference extraction NLP with LLM
-- Update profile:
-  - likes
-  - dislikes
-  - artists
-  - genres
+#### Profile Agent
+- ✅ Implement preference extraction NLP with LLM (Gemini)
+- ✅ Update profile:
+  - ✅ likes (favorite_genres)
+  - ✅ dislikes (disliked_genres)
+  - ✅ artists (favorite_artists)
+  - ✅ genres
 
-### Orchestrator
-- Add intent detection:
-  - preference update vs recommendation vs follow-up
+#### Orchestrator
+- ✅ Add intent detection:
+  - ✅ preference_update vs recommendation vs general
+  - ✅ Keyword-based detection
+- ✅ Route to ProfileAgent.extract_preferences() for preference updates
+- ✅ Persist profile before returning response
 
-### Tests
-- NLP extraction tests (mock LLM output)
-- Integration: preference → profile → influences next rec
+#### Tests
+- ✅ NLP extraction tests with mocked LLM (11 tests)
+- ✅ Integration tests: preference → profile → influences next rec (4 tests)
+- ✅ Test coverage:
+  - Simple likes/dislikes
+  - Multiple preferences in one statement
+  - Artist mentions, location extraction
+  - Error handling, JSON parsing edge cases
+  - Markdown cleanup, profile persistence
+  - End-to-end preference flow
 
-✔️ Working Checkpoint 3
+### Deliverables
 
-Locally you can refine results with preferences.
+✅ **Milestone 3 COMPLETE**
+- ✅ ProfileAgent.extract_preferences() using Gemini LLM
+- ✅ Intent detection in Orchestrator (_detect_intent method)
+- ✅ Preference extraction with JSON parsing and error handling
+- ✅ 15 new tests (11 unit + 4 integration)
+- ✅ **43 total tests passing**
+- ✅ Demo script (scripts/demo_preferences.py)
+- ✅ Updated documentation (README.md)
+
+**Key Features:**
+- Users express preferences in natural language
+- LLM extracts structured preferences from free text
+- Preferences persist across sessions in JSON storage
+- Future recommendations personalized based on profile
+- Both likes and dislikes tracked and applied to RAG scoring
+
+Locally you can refine results with natural language preferences.
+
+---
 
 ## Milestone 4 — Day 7–8
 Clean Multi-Agent Workflow
