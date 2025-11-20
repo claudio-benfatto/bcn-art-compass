@@ -6,12 +6,16 @@ multi-agent cultural events recommender system.
 """
 
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from agents.orchestrator import OrchestratorAgent
 from observability import configure_logging, log_info, set_correlation_id
+
+# Global orchestrator instance
+orchestrator: Optional[OrchestratorAgent] = None
 
 
 class ChatRequest(BaseModel):
@@ -34,9 +38,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Lifespan context manager for FastAPI app.
     Handles startup and shutdown events.
     """
+    global orchestrator
+
     # Startup
     configure_logging()
     log_info("application_started", service="bcn-art-compass-api")
+
+    # Initialize orchestrator (will create vector store if needed)
+    try:
+        orchestrator = OrchestratorAgent()
+        log_info("orchestrator_initialized")
+    except Exception as e:
+        log_info("orchestrator_initialization_failed", error=str(e), level="warning")
+        log_info("api_will_run_without_rag", level="warning")
 
     yield
 
@@ -92,9 +106,14 @@ async def chat(request: ChatRequest) -> ChatResponse:
     )
 
     try:
-        # TODO: In Milestone 1, this will call the orchestrator agent
-        # For now, just echo back a placeholder response
-        response_text = f"Echo (placeholder): {request.message}"
+        # Use orchestrator if available, otherwise fallback
+        if orchestrator:
+            response_text = orchestrator.process_query(request.message, request.user_id)
+        else:
+            response_text = (
+                "The recommendation system is currently unavailable. "
+                "Please ensure GOOGLE_API_KEY is set and the vector store is initialized."
+            )
 
         log_info(
             "chat_response_generated",

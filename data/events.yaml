@@ -1,0 +1,378 @@
+events:
+  - id: "evt_001"
+    title: "Contemporary Sculpture Exhibition"
+    description: |
+      A curated exhibition featuring emerging contemporary sculptors
+      from Spain and Europe. Includes installations and experimental
+      materials in collaboration with MACBA.
+    genres:
+      - "sculpture"
+      - "contemporary art"
+    artists:
+      - "Maria Torres"
+      - "Luis Martínez"
+    venue_id: "ven_macba"
+    start_date: "2025-02-15"
+    end_date: "2025-06-10"
+    opening_hours: "10:00–19:00"
+    url: "https://example.com/sculpture-exhibition"
+    booking_url: "https://tickets.example.com/sculpture-exhibition"
+    cost_range: "€12–€18"
+    accessibility_notes: |
+      Exhibition halls have step-free access.
+      Some large-scale installations may require walking through narrow corridors.
+    tags:
+      - "indoors"
+      - "museum"
+      - "family-friendly"
+
+  - id: "evt_002"
+    title: "Picasso: The Blue Period Revisited"
+    description: |
+      An intimate exploration of Picasso's Blue Period through paintings,
+      drawings, and personal letters. Exclusive showing at Museu Picasso.
+    genres:
+      - "painting"
+      - "modern art"
+    artists:
+      - "Pablo Picasso"
+    venue_id: "ven_picasso"
+    start_date: "2025-01-10"
+    end_date: "2025-05-20"
+    opening_hours: "09:00–20:00"
+    url: "https://example.com/picasso-blue-period"
+    booking_url: "https://tickets.example.com/picasso-blue-period"
+    cost_range: "€15–€20"
+    accessibility_notes: |
+      Fully accessible venue with ramps and elevators.
+    tags:
+      - "indoors"
+      - "museum"
+      - "historical"
+
+  - id: "evt_003"
+    title: "Digital Dreams: Interactive Art Installation"
+    description: |
+      Immersive digital art installation combining projection mapping,
+      soundscapes, and interactive elements. Created by Barcelona-based
+      collective ArtTech Lab.
+    genres:
+      - "digital art"
+      - "installation"
+      - "interactive"
+    artists:
+      - "ArtTech Lab Collective"
+    venue_id: "ven_cccb"
+    start_date: "2025-03-01"
+    end_date: "2025-04-30"
+    opening_hours: "11:00–21:00"
+    url: "https://example.com/digital-dreams"
+    booking_url: "https://tickets.example.com/digital-dreams"
+    cost_range: "€10–€14"
+    accessibility_notes: |
+      Dark rooms with flashing lights. May not be suitable for photosensitive visitors.
+    tags:
+      - "indoors"
+      - "contemporary"
+      - "technology"
+
+  - id: "evt_004"
+    title: "Urban Canvas: Street Art Tour"
+    description: |
+      Guided walking tour through El Raval and Poblenou neighborhoods,
+      exploring Barcelona's vibrant street art scene and meeting local artists.
+    genres:
+      - "street art"
+      - "graffiti"
+    artists:
+      - "Various Local Artists"
+    venue_id: "ven_outdoor_raval"
+    start_date: "2025-01-15"
+    end_date: "2025-12-31"
+    opening_hours: "10:00–13:00"
+    url: "https://example.com/urban-canvas-tour"
+    booking_url: "https://tickets.example.com/urban-canvas-tour"
+    cost_range: "€20–€25"
+    accessibility_notes: |
+      Walking tour covers approximately 3km. Not wheelchair accessible due to uneven terrain.
+    tags:
+      - "outdoors"
+      - "walking-tour"
+      - "street-art"
+
+  - id: "evt_005"
+    title: "Miró Foundation: Permanent Collection"
+    description: |
+      Explore the life and work of Joan Miró through paintings, sculptures,
+      and tapestries in this stunning hillside museum designed by Josep Lluís Sert.
+    genres:
+      - "painting"
+      - "sculpture"
+      - "modern art"
+    artists:
+      - "Joan Miró"
+    venue_id: "ven_miro"
+    start_date: "2025-01-01"
+    end_date: "2025-12-31"
+    opening_hours: "10:00–18:00"
+    url: "https://example.com/miro-foundation"
+    booking_url: "https://tickets.example.com/miro-foundation"
+    cost_range: "€13–€17"
+    accessibility_notes: |
+      Fully accessible. Wheelchairs available on request.
+    tags:
+      - "indoors"
+      - "museum"
+      - "permanent-collection"
+
+  - id: "evt_006"
+    title: "Photography Biennial: Mediterranean Light"
+    description: |
+      International photography exhibition exploring themes of light,
+      water, and Mediterranean culture through works by 50+ photographers.
+    genres:
+      - "photography"
+      - "contemporary art"
+    artists:
+      - "Various International Photographers"
+    venue_id: "ven_cccb"
+    start_date: "2025-02-01"
+    end_date: "2025-05-15"
+    opening_hours: "11:00–20:00"
+    url: "https://example.com/photo-biennial"
+    booking_url: "https://tickets.example.com/photo-biennial"
+    cost_range: "€8–€12"
+    accessibility_notes: |
+      Full accessibility. Audio guides available.
+    tags:
+      - "indoors"
+      - "photography"
+      - "international"
+
+  - id: "evt_007"
+    title: "Flamenco Fusion at Palau de la Música"
+    description: |
+      Contemporary flamenco performance blending traditional dance
+      with modern choreography and live music in the stunning Modernist concert hall.
+    genres:
+      - "dance"
+      - "performance"
+      - "flamenco"
+    artists:
+      - "Carmen Suárez Dance Company"
+    venue_id: "ven_palau_musica"
+    start_date: "2025-03-15"
+    end_date: "2025-03-17"
+    opening_hours: "20:00–22:00"
+    url: "https://example.com/flamenco-fusion"
+    booking_url: "https://tickets.example.com/flamenco-fusion"
+    cost_range: "€35–€65"
+    accessibility_notes: |
+      Wheelchair accessible seating available. Request at time of booking.
+    tags:
+      - "indoors"
+      - "performance"
+      - "dance"
+      - "live-music"
+
+  - id: "evt_008"
+    title: "Gaudí's Barcelona: Architecture Walk"
+    description: |
+      Expert-led walking tour covering Sagrada Família, Casa Batlló,
+      and La Pedrera with insights into Gaudí's unique architectural vision.
+    genres:
+      - "architecture"
+      - "historical"
+    artists:
+      - "Antoni Gaudí"
+    venue_id: "ven_outdoor_eixample"
+    start_date: "2025-01-01"
+    end_date: "2025-12-31"
+    opening_hours: "09:00–12:00"
+    url: "https://example.com/gaudi-walk"
+    booking_url: "https://tickets.example.com/gaudi-walk"
+    cost_range: "€30–€40"
+    accessibility_notes: |
+      Walking tour with some steep sections. Interior visits have elevator access.
+    tags:
+      - "outdoors"
+      - "architecture"
+      - "walking-tour"
+      - "historical"
+
+  - id: "evt_009"
+    title: "Textile Art: Threads of Identity"
+    description: |
+      Contemporary textile art exhibition exploring cultural identity,
+      migration, and memory through fabric, weaving, and fiber art.
+    genres:
+      - "textile art"
+      - "contemporary art"
+    artists:
+      - "Fatima El Idrissi"
+      - "Josep Grau-Garriga"
+    venue_id: "ven_museu_textil"
+    start_date: "2025-02-20"
+    end_date: "2025-07-15"
+    opening_hours: "10:00–19:00"
+    url: "https://example.com/textile-identity"
+    booking_url: "https://tickets.example.com/textile-identity"
+    cost_range: "€8–€10"
+    accessibility_notes: |
+      Step-free access. Tactile tours available by appointment.
+    tags:
+      - "indoors"
+      - "museum"
+      - "contemporary"
+
+  - id: "evt_010"
+    title: "Video Art Marathon: New Narratives"
+    description: |
+      24-hour video art marathon featuring experimental films and
+      video installations from emerging artists across Europe.
+    genres:
+      - "video art"
+      - "experimental"
+    artists:
+      - "Various Emerging Artists"
+    venue_id: "ven_macba"
+    start_date: "2025-04-05"
+    end_date: "2025-04-06"
+    opening_hours: "00:00–23:59"
+    url: "https://example.com/video-marathon"
+    booking_url: "https://tickets.example.com/video-marathon"
+    cost_range: "€0–€5"
+    accessibility_notes: |
+      Continuous screening. Come and go as you please. Seating available.
+    tags:
+      - "indoors"
+      - "experimental"
+      - "free"
+
+  - id: "evt_011"
+    title: "Ceramic Masters: From Tradition to Innovation"
+    description: |
+      Exhibition showcasing Catalan ceramic tradition alongside contemporary
+      ceramic art, featuring historical pieces and modern interpretations.
+    genres:
+      - "ceramics"
+      - "craft"
+      - "contemporary art"
+    artists:
+      - "Claudi Casanovas"
+      - "Toni Cumella"
+    venue_id: "ven_museu_ceramica"
+    start_date: "2025-03-10"
+    end_date: "2025-08-30"
+    opening_hours: "10:00–18:00"
+    url: "https://example.com/ceramic-masters"
+    booking_url: "https://tickets.example.com/ceramic-masters"
+    cost_range: "€6–€8"
+    accessibility_notes: |
+      Fully accessible venue. Large print labels available.
+    tags:
+      - "indoors"
+      - "museum"
+      - "craft"
+
+  - id: "evt_012"
+    title: "Sound and Space: Experimental Music Series"
+    description: |
+      Monthly experimental music series featuring ambient, electroacoustic,
+      and avant-garde compositions in an intimate gallery setting.
+    genres:
+      - "experimental music"
+      - "performance"
+    artists:
+      - "Rotating Guest Artists"
+    venue_id: "ven_hangar"
+    start_date: "2025-01-15"
+    end_date: "2025-12-15"
+    opening_hours: "20:00–22:00"
+    url: "https://example.com/sound-and-space"
+    booking_url: "https://tickets.example.com/sound-and-space"
+    cost_range: "€5–€10"
+    accessibility_notes: |
+      Ground floor venue. Accessible entrance and restrooms.
+    tags:
+      - "indoors"
+      - "performance"
+      - "music"
+      - "experimental"
+
+  - id: "evt_013"
+    title: "Children's Art Workshop: Color Explorers"
+    description: |
+      Hands-on art workshop for children ages 5-12, exploring color theory,
+      painting techniques, and creative expression in a fun environment.
+    genres:
+      - "workshop"
+      - "education"
+    artists:
+      - "Museum Education Team"
+    venue_id: "ven_caixaforum"
+    start_date: "2025-02-01"
+    end_date: "2025-06-30"
+    opening_hours: "10:00–12:00"
+    url: "https://example.com/kids-workshop"
+    booking_url: "https://tickets.example.com/kids-workshop"
+    cost_range: "€8–€12"
+    accessibility_notes: |
+      Fully accessible. Parent/guardian supervision required.
+    tags:
+      - "indoors"
+      - "workshop"
+      - "family-friendly"
+      - "children"
+
+  - id: "evt_014"
+    title: "Gothic Quarter Art Gallery Hop"
+    description: |
+      Self-guided tour map and evening event featuring 15 contemporary art
+      galleries in the Gothic Quarter, with artist talks and wine.
+    genres:
+      - "contemporary art"
+      - "mixed media"
+    artists:
+      - "Various Gallery Artists"
+    venue_id: "ven_outdoor_gothic"
+    start_date: "2025-03-20"
+    end_date: "2025-03-20"
+    opening_hours: "18:00–22:00"
+    url: "https://example.com/gallery-hop"
+    booking_url: "https://tickets.example.com/gallery-hop"
+    cost_range: "€0–€15"
+    accessibility_notes: |
+      Most galleries have step access. Accessibility varies by location.
+    tags:
+      - "indoors"
+      - "galleries"
+      - "social"
+      - "evening"
+
+  - id: "evt_015"
+    title: "Sustainable Art: Eco-Materials Exhibition"
+    description: |
+      Exhibition featuring artworks created entirely from recycled and
+      sustainable materials, addressing environmental themes and circular economy.
+    genres:
+      - "contemporary art"
+      - "installation"
+      - "environmental"
+    artists:
+      - "Green Art Collective"
+      - "Marina Vargas"
+    venue_id: "ven_cccb"
+    start_date: "2025-04-01"
+    end_date: "2025-06-30"
+    opening_hours: "11:00–20:00"
+    url: "https://example.com/sustainable-art"
+    booking_url: "https://tickets.example.com/sustainable-art"
+    cost_range: "€7–€10"
+    accessibility_notes: |
+      Fully accessible venue. Materials tour available in English and Catalan.
+    tags:
+      - "indoors"
+      - "contemporary"
+      - "environmental"
+      - "educational"

@@ -1,0 +1,224 @@
+"""
+ChromaDB vector store wrapper for event and venue search.
+"""
+
+import os
+from pathlib import Path
+from typing import Optional, Union
+
+import chromadb
+from chromadb.config import Settings
+
+from observability import log_info, log_rag_query
+from rag.embeddings import EmbeddingGenerator
+from rag.embeddings_local import LocalEmbeddingGenerator
+from rag.models import EventWithVenue, SearchResult
+
+
+class VectorStore:
+    """
+    ChromaDB-based vector store for events and venues.
+
+    Handles document indexing and semantic search with embeddings.
+    Supports both Google API embeddings and free local embeddings.
+    """
+
+    def __init__(
+        self,
+        collection_name: str = "events",
+        persist_directory: Optional[str] = None,
+        embedding_generator: Optional[Union[EmbeddingGenerator, LocalEmbeddingGenerator]] = None,
+        use_local_embeddings: Optional[bool] = None,
+    ):
+        """
+        Initialize the vector store.
+
+        Args:
+            collection_name: Name of the ChromaDB collection
+            persist_directory: Directory to persist the database. If None, uses ./storage/chroma_db
+            embedding_generator: EmbeddingGenerator instance. If None, auto-selects based on environment
+            use_local_embeddings: Explicit choice. If None, checks USE_LOCAL_EMBEDDINGS env var,
+                                 then falls back to True if no GOOGLE_API_KEY, False if key exists
+        """
+        self.collection_name = collection_name
+
+        # Set up persistence directory
+        if persist_directory is None:
+            persist_directory = str(Path(__file__).parent.parent / "storage" / "chroma_db")
+
+        os.makedirs(persist_directory, exist_ok=True)
+
+        # Initialize ChromaDB client
+        self.client = chromadb.Client(
+            Settings(
+                persist_directory=persist_directory,
+                anonymized_telemetry=False,
+            )
+        )
+
+        # Get or create collection
+        self.collection = self.client.get_or_create_collection(
+            name=collection_name,
+            metadata={"description": "Cultural events and venues in Barcelona"},
+        )
+
+        # Determine which embedding generator to use
+        if embedding_generator:
+            self.embedding_generator = embedding_generator
+            embedding_type = "custom"
+        else:
+            # Auto-detect based on environment variables and parameters
+            if use_local_embeddings is None:
+                # Check for explicit flag first
+                env_flag = os.getenv("USE_LOCAL_EMBEDDINGS", "").lower()
+                if env_flag in ("true", "1", "yes"):
+                    use_local_embeddings = True
+                elif env_flag in ("false", "0", "no"):
+                    use_local_embeddings = False
+                else:
+                    # Default: use local if no API key, otherwise use Google
+                    use_local_embeddings = "GOOGLE_API_KEY" not in os.environ
+            
+            if use_local_embeddings:
+                log_info("using_local_embeddings", model="sentence-transformers")
+                self.embedding_generator = LocalEmbeddingGenerator()
+                embedding_type = "local"
+            else:
+                log_info("using_google_embeddings", model="text-embedding-004")
+                self.embedding_generator = EmbeddingGenerator()
+                embedding_type = "google"
+
+        log_info(
+            "vector_store_initialized",
+            collection=collection_name,
+            persist_directory=persist_directory,
+            doc_count=self.collection.count(),
+            embedding_type=embedding_type,
+        )
+
+    def add_documents(self, events_with_venues: list[EventWithVenue]) -> None:
+        """
+        Add events and venues to the vector store.
+
+        Args:
+            events_with_venues: List of EventWithVenue objects to index
+        """
+        if not events_with_venues:
+            log_info("no_documents_to_add")
+            return
+
+        log_info("adding_documents_to_vector_store", count=len(events_with_venues))
+
+        # Prepare data for ChromaDB
+        ids = []
+        documents = []
+        metadatas = []
+
+        for ewv in events_with_venues:
+            ids.append(ewv.event.id)
+            documents.append(ewv.to_text())
+
+            # Store metadata for filtering and result reconstruction
+            metadatas.append(
+                {
+                    "event_id": ewv.event.id,
+                    "title": ewv.event.title,
+                    "venue_id": ewv.venue.id,
+                    "venue_name": ewv.venue.name,
+                    "genres": ",".join(ewv.event.genres),
+                    "tags": ",".join(ewv.event.tags),
+                    "neighborhood": ewv.venue.neighborhood,
+                    "start_date": str(ewv.event.start_date),
+                    "end_date": str(ewv.event.end_date),
+                    "cost_range": ewv.event.cost_range,
+                    "url": ewv.event.url,
+                }
+            )
+
+        # Generate embeddings
+        log_info("generating_embeddings_for_documents", count=len(documents))
+        embeddings = self.embedding_generator.generate_embeddings_batch(documents)
+
+        # Add to collection
+        self.collection.add(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)
+
+        log_info("documents_added_successfully", count=len(ids), total_in_store=self.collection.count())
+
+    def query(
+        self,
+        query_text: str,
+        k: int = 5,
+        filters: Optional[dict] = None,
+    ) -> list[SearchResult]:
+        """
+        Query the vector store for relevant events.
+
+        Args:
+            query_text: Natural language search query
+            k: Number of results to return
+            filters: Optional metadata filters (e.g., {"genres": "sculpture"})
+
+        Returns:
+            List of SearchResult objects ordered by relevance
+        """
+        log_rag_query(query=query_text, num_results=k, filters=filters)
+
+        # Generate query embedding
+        query_embedding = self.embedding_generator.generate_query_embedding(query_text)
+
+        # Build where clause for filters if provided
+        where_clause = None
+        if filters:
+            # Convert filters to ChromaDB where clause format
+            # For now, simple equality filters
+            where_clause = filters
+
+        # Query the collection
+        results = self.collection.query(
+            query_embeddings=[query_embedding],
+            n_results=k,
+            where=where_clause,
+        )
+
+        # Convert to SearchResult objects
+        search_results = []
+
+        if results["ids"] and results["ids"][0]:
+            for i, event_id in enumerate(results["ids"][0]):
+                metadata = results["metadatas"][0][i]
+                distance = results["distances"][0][i] if results["distances"] else 0.0
+
+                # Convert distance to similarity score (closer = higher score)
+                score = 1.0 / (1.0 + distance)
+
+                search_results.append(
+                    SearchResult(
+                        event_id=event_id,
+                        title=metadata["title"],
+                        description=results["documents"][0][i].split("\n")[1].replace("Description: ", ""),
+                        venue_name=metadata["venue_name"],
+                        genres=metadata["genres"].split(","),
+                        start_date=metadata["start_date"],
+                        end_date=metadata["end_date"],
+                        cost_range=metadata["cost_range"],
+                        score=score,
+                        url=metadata["url"],
+                    )
+                )
+
+        log_info("query_complete", results_found=len(search_results), query=query_text)
+        return search_results
+
+    def clear(self) -> None:
+        """Clear all documents from the collection."""
+        log_info("clearing_vector_store", collection=self.collection_name)
+        self.client.delete_collection(self.collection_name)
+        self.collection = self.client.get_or_create_collection(
+            name=self.collection_name,
+            metadata={"description": "Cultural events and venues in Barcelona"},
+        )
+        log_info("vector_store_cleared")
+
+    def count(self) -> int:
+        """Get the number of documents in the store."""
+        return self.collection.count()

@@ -1,0 +1,267 @@
+venues:
+  - id: "ven_macba"
+    name: "Museu d'Art Contemporani de Barcelona (MACBA)"
+    description: |
+      MACBA is Barcelona's main institution for contemporary art,
+      located in the El Raval district. It hosts rotating exhibitions,
+      installations, and educational activities.
+    address: "Plaça dels Àngels, 1, 08001 Barcelona, Spain"
+    latitude: 41.3833
+    longitude: 2.1667
+    neighborhood: "El Raval"
+    type: "museum"
+    website_url: "https://www.macba.cat"
+    opening_hours: "10:00–20:00"
+    price_range: "€€"
+    contact_email: "info@macba.cat"
+    contact_phone: "+34 93 412 08 10"
+    tags:
+      - "contemporary"
+      - "museum"
+      - "popular"
+    accessibility_notes: |
+      Step-free entrance available via main door. Accessible bathrooms on all floors.
+      Elevators to all exhibition spaces.
+
+  - id: "ven_picasso"
+    name: "Museu Picasso"
+    description: |
+      One of the most complete collections of works by Pablo Picasso,
+      housed in five adjoining medieval palaces in the Gothic Quarter.
+    address: "Carrer de Montcada, 15-23, 08003 Barcelona, Spain"
+    latitude: 41.3851
+    longitude: 2.1808
+    neighborhood: "El Born"
+    type: "museum"
+    website_url: "https://www.museupicasso.bcn.cat"
+    opening_hours: "09:00–20:00"
+    price_range: "€€"
+    contact_email: "info@museupicasso.bcn.cat"
+    contact_phone: "+34 93 256 30 00"
+    tags:
+      - "historical"
+      - "museum"
+      - "popular"
+    accessibility_notes: |
+      Ramps and elevators available. Some medieval architecture may have narrow passages.
+
+  - id: "ven_cccb"
+    name: "Centre de Cultura Contemporània de Barcelona (CCCB)"
+    description: |
+      Cultural center focusing on contemporary urban culture, with exhibitions,
+      debates, festivals, and multimedia installations.
+    address: "Carrer de Montalegre, 5, 08001 Barcelona, Spain"
+    latitude: 41.3832
+    longitude: 2.1662
+    neighborhood: "El Raval"
+    type: "cultural-center"
+    website_url: "https://www.cccb.org"
+    opening_hours: "11:00–20:00"
+    price_range: "€€"
+    contact_email: "info@cccb.org"
+    contact_phone: "+34 93 306 41 00"
+    tags:
+      - "contemporary"
+      - "cultural-center"
+      - "multimedia"
+    accessibility_notes: |
+      Fully accessible with ramps, elevators, and accessible restrooms throughout.
+
+  - id: "ven_miro"
+    name: "Fundació Joan Miró"
+    description: |
+      Museum dedicated to the life and work of Joan Miró, set on Montjuïc hill
+      with stunning views over Barcelona.
+    address: "Parc de Montjuïc, s/n, 08038 Barcelona, Spain"
+    latitude: 41.3688
+    longitude: 2.1599
+    neighborhood: "Montjuïc"
+    type: "museum"
+    website_url: "https://www.fmirobcn.org"
+    opening_hours: "10:00–18:00"
+    price_range: "€€"
+    contact_email: "info@fmirobcn.org"
+    contact_phone: "+34 93 443 94 70"
+    tags:
+      - "modern-art"
+      - "museum"
+      - "scenic"
+    accessibility_notes: |
+      Fully accessible venue with wheelchairs available on request.
+
+  - id: "ven_palau_musica"
+    name: "Palau de la Música Catalana"
+    description: |
+      Stunning Modernist concert hall by Lluís Domènech i Montaner,
+      UNESCO World Heritage site hosting music and performance events.
+    address: "Carrer del Palau de la Música, 4-6, 08003 Barcelona, Spain"
+    latitude: 41.3875
+    longitude: 2.1754
+    neighborhood: "Sant Pere"
+    type: "concert-hall"
+    website_url: "https://www.palaumusica.cat"
+    opening_hours: "10:00–15:30"
+    price_range: "€€€"
+    contact_email: "info@palaumusica.cat"
+    contact_phone: "+34 93 295 72 00"
+    tags:
+      - "modernist"
+      - "performance"
+      - "unesco"
+      - "architectural"
+    accessibility_notes: |
+      Wheelchair accessible. Special seating for mobility-impaired visitors available.
+
+  - id: "ven_outdoor_raval"
+    name: "El Raval Neighborhood"
+    description: |
+      Historic multicultural neighborhood known for its vibrant street art,
+      galleries, and cultural diversity.
+    address: "El Raval, Barcelona, Spain"
+    latitude: 41.3811
+    longitude: 2.1670
+    neighborhood: "El Raval"
+    type: "outdoor"
+    website_url: null
+    opening_hours: "24/7"
+    price_range: "Free"
+    contact_email: null
+    contact_phone: null
+    tags:
+      - "outdoor"
+      - "neighborhood"
+      - "street-art"
+    accessibility_notes: |
+      Varies by location. Some streets have uneven cobblestones.
+
+  - id: "ven_museu_textil"
+    name: "Museu del Disseny de Barcelona (Textile Collection)"
+    description: |
+      Design museum with extensive textile and fashion collections,
+      located in a modern building in Plaça de les Glòries.
+    address: "Plaça de les Glòries Catalanes, 37-38, 08018 Barcelona, Spain"
+    latitude: 41.4036
+    longitude: 2.1898
+    neighborhood: "Poblenou"
+    type: "museum"
+    website_url: "https://www.museudeldisseny.cat"
+    opening_hours: "10:00–19:00"
+    price_range: "€"
+    contact_email: "info@museudeldisseny.cat"
+    contact_phone: "+34 93 256 68 00"
+    tags:
+      - "design"
+      - "museum"
+      - "fashion"
+    accessibility_notes: |
+      Modern accessible building with elevators and accessible facilities.
+
+  - id: "ven_outdoor_eixample"
+    name: "Eixample District"
+    description: |
+      Modernist district known for its grid layout and concentration of
+      Gaudí and other architectural masterpieces.
+    address: "Eixample, Barcelona, Spain"
+    latitude: 41.3954
+    longitude: 2.1635
+    neighborhood: "Eixample"
+    type: "outdoor"
+    website_url: null
+    opening_hours: "24/7"
+    price_range: "Free"
+    contact_email: null
+    contact_phone: null
+    tags:
+      - "outdoor"
+      - "architecture"
+      - "modernist"
+    accessibility_notes: |
+      Wide sidewalks. Individual buildings have varying accessibility.
+
+  - id: "ven_museu_ceramica"
+    name: "Museu de Ceràmica"
+    description: |
+      Museum showcasing Catalan ceramics from medieval times to contemporary,
+      located in the beautiful Palau Reial de Pedralbes.
+    address: "Av. Diagonal, 686, 08034 Barcelona, Spain"
+    latitude: 41.3897
+    longitude: 2.1141
+    neighborhood: "Pedralbes"
+    type: "museum"
+    website_url: "https://www.museudeldisseny.cat"
+    opening_hours: "10:00–18:00"
+    price_range: "€"
+    contact_email: "info@museudeldisseny.cat"
+    contact_phone: "+34 93 256 68 00"
+    tags:
+      - "ceramics"
+      - "museum"
+      - "historical"
+    accessibility_notes: |
+      Accessible entrance and elevator. Beautiful gardens also accessible.
+
+  - id: "ven_hangar"
+    name: "Hangar"
+    description: |
+      Contemporary art production center providing workspace and support
+      for artists, with regular exhibitions and events.
+    address: "Carrer d'Emília Coranty, 16, 08018 Barcelona, Spain"
+    latitude: 41.4043
+    longitude: 2.1995
+    neighborhood: "Poblenou"
+    type: "art-space"
+    website_url: "https://www.hangar.org"
+    opening_hours: "10:00–18:00"
+    price_range: "€"
+    contact_email: "info@hangar.org"
+    contact_phone: "+34 93 308 40 41"
+    tags:
+      - "contemporary"
+      - "art-space"
+      - "experimental"
+    accessibility_notes: |
+      Ground floor accessible. Call ahead for specific event accessibility.
+
+  - id: "ven_caixaforum"
+    name: "CaixaForum Barcelona"
+    description: |
+      Cultural and exhibition center in a restored Modernist textile factory,
+      hosting diverse art exhibitions and educational programs.
+    address: "Av. de Francesc Ferrer i Guàrdia, 6-8, 08038 Barcelona, Spain"
+    latitude: 41.3718
+    longitude: 2.1505
+    neighborhood: "Montjuïc"
+    type: "cultural-center"
+    website_url: "https://caixaforum.org/barcelona"
+    opening_hours: "10:00–20:00"
+    price_range: "€€"
+    contact_email: "info.caixaforum@fundacionlacaixa.org"
+    contact_phone: "+34 93 476 86 00"
+    tags:
+      - "contemporary"
+      - "cultural-center"
+      - "family-friendly"
+    accessibility_notes: |
+      Fully accessible with elevators and accessible facilities throughout.
+
+  - id: "ven_outdoor_gothic"
+    name: "Gothic Quarter"
+    description: |
+      Historic center of Barcelona with medieval streets, Roman ruins,
+      galleries, and cultural venues in atmospheric surroundings.
+    address: "Barri Gòtic, Barcelona, Spain"
+    latitude: 41.3828
+    longitude: 2.1764
+    neighborhood: "Gothic Quarter"
+    type: "outdoor"
+    website_url: null
+    opening_hours: "24/7"
+    price_range: "Free"
+    contact_email: null
+    contact_phone: null
+    tags:
+      - "outdoor"
+      - "historical"
+      - "medieval"
+    accessibility_notes: |
+      Narrow medieval streets with cobblestones. Some areas challenging for wheelchair access.

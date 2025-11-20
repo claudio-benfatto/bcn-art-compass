@@ -58,7 +58,8 @@ def test_chat_endpoint(client):
     assert "response" in data
     assert "correlation_id" in data
     assert len(data["correlation_id"]) > 0
-    assert "Echo (placeholder)" in data["response"]
+    # Response will either be from orchestrator or fallback message
+    assert len(data["response"]) > 0
 
 
 @pytest.mark.integration
