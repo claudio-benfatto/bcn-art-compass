@@ -1,31 +1,42 @@
 """
-Minimal Orchestrator Agent.
+Orchestrator Agent with Profile Integration.
 
 Routes user queries to the appropriate handler (RAG search or fallback).
-This is a simplified version for Milestone 1 - no memory, just basic routing.
+In Milestone 2, integrates ProfileAgent to load user preferences.
 """
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
+from agents.profile_agent import ProfileAgent
 from observability import log_agent_routing, log_info
 from rag.vector_store import VectorStore
+
+if TYPE_CHECKING:
+    from memory.models import UserProfile
 
 
 class OrchestratorAgent:
     """
-    Minimal orchestrator for routing user queries.
+    Orchestrator for routing user queries with profile awareness.
 
-    In Milestone 1, this simply decides:
-    - If query contains recommendation keywords → call RAG
-    - Otherwise → return fallback message
+    Responsibilities:
+    - Load user profile before processing queries
+    - Route queries to RAG with profile context
+    - Return fallback for non-recommendation queries
     """
 
-    def __init__(self, vector_store: Optional[VectorStore] = None, use_local_embeddings: Optional[bool] = None):
+    def __init__(
+        self,
+        vector_store: Optional[VectorStore] = None,
+        profile_agent: Optional[ProfileAgent] = None,
+        use_local_embeddings: Optional[bool] = None,
+    ):
         """
         Initialize the orchestrator.
 
         Args:
             vector_store: VectorStore instance for RAG queries. If None, creates a new one
+            profile_agent: ProfileAgent instance. If None, creates a new one
             use_local_embeddings: Explicit choice. If None, auto-detects from USE_LOCAL_EMBEDDINGS env var
         """
         if vector_store:
@@ -33,6 +44,8 @@ class OrchestratorAgent:
         else:
             # Let VectorStore handle auto-detection via environment variables
             self.vector_store = VectorStore(use_local_embeddings=use_local_embeddings)
+
+        self.profile_agent = profile_agent or ProfileAgent()
 
         # Keywords that trigger RAG search
         self.recommendation_keywords = [
@@ -52,7 +65,7 @@ class OrchestratorAgent:
             "gallery",
         ]
 
-        log_info("orchestrator_initialized")
+        log_info("orchestrator_initialized", with_profile_agent=True)
 
     def _should_use_rag(self, query: str) -> bool:
         """
@@ -71,14 +84,24 @@ class OrchestratorAgent:
         """
         Process a user query and return a response.
 
+        In Milestone 2, this now loads the user profile and passes it to RAG.
+
         Args:
             query: User's natural language query
-            user_id: User identifier (not used in Milestone 1)
+            user_id: User identifier
 
         Returns:
             Response text
         """
         log_info("orchestrator_processing_query", user_id=user_id, query_length=len(query))
+
+        # Load user profile
+        profile = self.profile_agent.load_profile(user_id)
+        log_info(
+            "profile_loaded_for_query",
+            user_id=user_id,
+            has_preferences=len(profile.favorite_genres) > 0 or len(profile.favorite_artists) > 0,
+        )
 
         # Decide routing
         use_rag = self._should_use_rag(query)
@@ -90,24 +113,25 @@ class OrchestratorAgent:
         )
 
         if use_rag:
-            return self._handle_recommendation_query(query)
+            return self._handle_recommendation_query(query, profile)
         else:
             return self._handle_fallback(query)
 
-    def _handle_recommendation_query(self, query: str) -> str:
+    def _handle_recommendation_query(self, query: str, profile: "UserProfile") -> str:
         """
-        Handle recommendation queries using RAG.
+        Handle recommendation queries using RAG with profile context.
 
         Args:
             query: User query
+            profile: User profile with preferences
 
         Returns:
             Formatted response with event recommendations
         """
         log_info("handling_recommendation_query", query=query[:100])
 
-        # Query the vector store
-        results = self.vector_store.query(query, k=5)
+        # Query the vector store with profile
+        results = self.vector_store.query(query, k=5, profile=profile)
 
         if not results:
             return "I couldn't find any events matching your query. Could you try rephrasing?"

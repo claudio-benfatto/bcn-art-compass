@@ -96,8 +96,8 @@ Profile Memory + Profile Agent + Retrieval in Recommendation Flow
 
 #### Profile Agent
 - Minimal version:
-- Loads profile
-- Can store static defaults (e.g., fav genres)
+  - Loads profile
+  - Can store static defaults (e.g., fav genres)
 
 #### Orchestrator
 - Load profile before running RAG

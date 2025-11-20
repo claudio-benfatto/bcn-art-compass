@@ -4,7 +4,7 @@ ChromaDB vector store wrapper for event and venue search.
 
 import os
 from pathlib import Path
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 import chromadb
 from chromadb.config import Settings
@@ -13,6 +13,9 @@ from observability import log_info, log_rag_query
 from rag.embeddings import EmbeddingGenerator
 from rag.embeddings_local import LocalEmbeddingGenerator
 from rag.models import EventWithVenue, SearchResult
+
+if TYPE_CHECKING:
+    from memory.models import UserProfile
 
 
 class VectorStore:
@@ -149,14 +152,18 @@ class VectorStore:
         query_text: str,
         k: int = 5,
         filters: Optional[dict] = None,
+        profile: Optional["UserProfile"] = None,
     ) -> list[SearchResult]:
         """
         Query the vector store for relevant events.
+
+        In Milestone 2, adds profile-based scoring to personalize results.
 
         Args:
             query_text: Natural language search query
             k: Number of results to return
             filters: Optional metadata filters (e.g., {"genres": "sculpture"})
+            profile: Optional user profile for personalized ranking
 
         Returns:
             List of SearchResult objects ordered by relevance
@@ -173,10 +180,13 @@ class VectorStore:
             # For now, simple equality filters
             where_clause = filters
 
+        # Query more results if we have a profile (to allow for re-ranking)
+        fetch_k = k * 3 if profile else k
+
         # Query the collection
         results = self.collection.query(
             query_embeddings=[query_embedding],
-            n_results=k,
+            n_results=fetch_k,
             where=where_clause,
         )
 
@@ -189,7 +199,10 @@ class VectorStore:
                 distance = results["distances"][0][i] if results["distances"] else 0.0
 
                 # Convert distance to similarity score (closer = higher score)
-                score = 1.0 / (1.0 + distance)
+                base_score = 1.0 / (1.0 + distance)
+
+                # Apply profile-based scoring if available
+                final_score = self._apply_profile_scoring(base_score, metadata, profile)
 
                 search_results.append(
                     SearchResult(
@@ -201,10 +214,15 @@ class VectorStore:
                         start_date=metadata["start_date"],
                         end_date=metadata["end_date"],
                         cost_range=metadata["cost_range"],
-                        score=score,
+                        score=final_score,
                         url=metadata["url"],
                     )
                 )
+
+        # Sort by score (highest first) if profile was used for re-ranking
+        if profile:
+            search_results.sort(key=lambda x: x.score, reverse=True)
+            search_results = search_results[:k]  # Trim to requested k
 
         log_info("query_complete", results_found=len(search_results), query=query_text)
         return search_results
@@ -220,5 +238,60 @@ class VectorStore:
         log_info("vector_store_cleared")
 
     def count(self) -> int:
-        """Get the number of documents in the store."""
+        """Get the number of documents in the collection."""
         return self.collection.count()
+
+    def _apply_profile_scoring(
+        self,
+        base_score: float,
+        metadata: dict,
+        profile: Optional["UserProfile"],
+    ) -> float:
+        """
+        Apply profile-based scoring adjustments.
+
+        Boosts score for events matching user's favorite genres/artists.
+        Penalizes score for disliked genres.
+
+        Args:
+            base_score: Base similarity score from vector search
+            metadata: Event metadata containing genres, artists, etc.
+            profile: User profile (if None, returns base_score)
+
+        Returns:
+            Adjusted score
+        """
+        if not profile:
+            return base_score
+
+        score = base_score
+        genres = metadata.get("genres", "").lower().split(",")
+
+        # Boost for favorite genres (up to +0.2 per match)
+        for fav_genre in profile.favorite_genres:
+            if any(fav_genre.lower() in genre for genre in genres):
+                score += 0.2
+                log_info(
+                    "profile_boost_applied",
+                    event=metadata["title"],
+                    genre=fav_genre,
+                    boost=0.2,
+                )
+
+        # Penalize for disliked genres (up to -0.3 per match)
+        for disliked_genre in profile.disliked_genres:
+            if any(disliked_genre.lower() in genre for genre in genres):
+                score -= 0.3
+                log_info(
+                    "profile_penalty_applied",
+                    event=metadata["title"],
+                    genre=disliked_genre,
+                    penalty=-0.3,
+                )
+
+        # Boost for favorite artists (future enhancement when artist metadata is added)
+        # for fav_artist in profile.favorite_artists:
+        #     if any(fav_artist.lower() in artist for artist in artists):
+        #         score += 0.15
+
+        return max(0.0, score)  # Ensure score doesn't go negative
