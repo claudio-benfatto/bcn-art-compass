@@ -14,7 +14,6 @@ import pytest
 from agents.orchestrator import OrchestratorAgent
 from agents.profile_agent import ProfileAgent
 from memory.storage import MemoryStorage
-from rag.vector_store import VectorStore
 
 
 @pytest.fixture
@@ -31,17 +30,21 @@ def profile_agent(temp_storage):
 
 
 @pytest.fixture
-def vector_store():
-    """Create a VectorStore for testing."""
+def recommender_agent():
+    """Create a RecommenderAgent for testing."""
+    from agents.recommender_agent import RecommenderAgent
+    from rag.vector_store import VectorStore
+
     # Use local embeddings to avoid API costs
-    return VectorStore(use_local_embeddings=True)
+    vector_store = VectorStore(use_local_embeddings=True)
+    return RecommenderAgent(vector_store=vector_store)
 
 
 @pytest.fixture
-def orchestrator(vector_store, profile_agent):
+def orchestrator(recommender_agent, profile_agent):
     """Create an OrchestratorAgent with test components."""
     return OrchestratorAgent(
-        vector_store=vector_store,
+        recommender_agent=recommender_agent,
         profile_agent=profile_agent,
         use_local_embeddings=True,
     )

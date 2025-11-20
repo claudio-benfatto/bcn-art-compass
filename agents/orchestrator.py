@@ -1,15 +1,20 @@
 """
-Orchestrator Agent with Profile Integration.
+Orchestrator Agent - Multi-agent workflow coordinator.
 
-Routes user queries to the appropriate handler (RAG search or fallback).
-In Milestone 2, integrates ProfileAgent to load user preferences.
+Routes user queries to appropriate agents:
+- ProfileAgent: User preferences and memory
+- RecommenderAgent: Event recommendations with RAG
+
+Milestone 2: Added ProfileAgent integration
+Milestone 3: Added preference extraction with intent detection
+Milestone 4: Added RecommenderAgent and conversation context
 """
 
 from typing import TYPE_CHECKING, Optional
 
 from agents.profile_agent import ProfileAgent
+from agents.recommender_agent import RecommenderAgent
 from observability import log_agent_routing, log_info
-from rag.vector_store import VectorStore
 
 if TYPE_CHECKING:
     from memory.models import UserProfile
@@ -17,17 +22,19 @@ if TYPE_CHECKING:
 
 class OrchestratorAgent:
     """
-    Orchestrator for routing user queries with profile awareness.
+    Orchestrator for multi-agent workflow coordination.
 
-    Responsibilities:
-    - Load user profile before processing queries
-    - Route queries to RAG with profile context
-    - Return fallback for non-recommendation queries
+    Responsibilities (Milestone 4):
+    - Detect user intent (preference_update, recommendation, general)
+    - Load and update user profiles via ProfileAgent
+    - Delegate recommendations to RecommenderAgent
+    - Track conversation context for multi-turn interactions
+    - Route queries to appropriate agents
     """
 
     def __init__(
         self,
-        vector_store: Optional[VectorStore] = None,
+        recommender_agent: Optional[RecommenderAgent] = None,
         profile_agent: Optional[ProfileAgent] = None,
         use_local_embeddings: Optional[bool] = None,
     ):
@@ -35,17 +42,23 @@ class OrchestratorAgent:
         Initialize the orchestrator.
 
         Args:
-            vector_store: VectorStore instance for RAG queries. If None, creates a new one
+            recommender_agent: RecommenderAgent instance. If None, creates a new one
             profile_agent: ProfileAgent instance. If None, creates a new one
-            use_local_embeddings: Explicit choice. If None, auto-detects from USE_LOCAL_EMBEDDINGS env var
+            use_local_embeddings: Passed to RecommenderAgent for embedding choice
         """
-        if vector_store:
-            self.vector_store = vector_store
-        else:
-            # Let VectorStore handle auto-detection via environment variables
-            self.vector_store = VectorStore(use_local_embeddings=use_local_embeddings)
-
+        self.recommender_agent = recommender_agent or RecommenderAgent(
+            vector_store=None if use_local_embeddings is None else
+            __import__('rag.vector_store', fromlist=['VectorStore']).VectorStore(
+                use_local_embeddings=use_local_embeddings
+            )
+        )
         self.profile_agent = profile_agent or ProfileAgent()
+
+        # Conversation context (Milestone 4)
+        self.conversation_history: dict = {}  # user_id -> list of (query, response) tuples
+
+        # Conversation context (Milestone 4)
+        self.conversation_history: dict = {}  # user_id -> list of (query, response) tuples
 
         # Keywords that trigger RAG search
         self.recommendation_keywords = [
@@ -71,7 +84,12 @@ class OrchestratorAgent:
             "dislike": ["don't like", "dislike", "hate", "not interested in", "not a fan"],
         }
 
-        log_info("orchestrator_initialized", with_profile_agent=True)
+        log_info(
+            "orchestrator_initialized",
+            with_profile_agent=True,
+            with_recommender_agent=True,
+            conversation_context=True,
+        )
 
     def _should_use_rag(self, query: str) -> bool:
         """
@@ -152,8 +170,6 @@ class OrchestratorAgent:
 
         # Load user profile for other queries
         profile = self.profile_agent.load_profile(user_id)
-        # Load user profile for other queries
-        profile = self.profile_agent.load_profile(user_id)
         log_info(
             "profile_loaded_for_query",
             user_id=user_id,
@@ -165,47 +181,76 @@ class OrchestratorAgent:
 
         log_agent_routing(
             agent_name="orchestrator",
-            decision="use_rag" if use_rag else "fallback",
+            decision="recommender_agent" if use_rag else "fallback",
             user_query=query[:100],  # Log first 100 chars
         )
 
         if use_rag:
-            return self._handle_recommendation_query(query, profile)
+            response = self._handle_recommendation_query(query, profile, user_id)
         else:
-            return self._handle_fallback(query)
+            response = self._handle_fallback(query)
 
-    def _handle_recommendation_query(self, query: str, profile: "UserProfile") -> str:
+        # Store in conversation history
+        self._add_to_history(user_id, query, response)
+
+        return response
+
+    def _add_to_history(self, user_id: str, query: str, response: str):
+        """Add query and response to conversation history."""
+        if user_id not in self.conversation_history:
+            self.conversation_history[user_id] = []
+
+        self.conversation_history[user_id].append({
+            "query": query,
+            "response": response[:200],  # Store truncated response
+        })
+
+        # Keep only last 10 interactions
+        if len(self.conversation_history[user_id]) > 10:
+            self.conversation_history[user_id] = self.conversation_history[user_id][-10:]
+
+        log_info(
+            "conversation_history_updated",
+            user_id=user_id,
+            history_length=len(self.conversation_history[user_id]),
+        )
+
+    def get_conversation_history(self, user_id: str) -> list:
+        """Get conversation history for a user."""
+        return self.conversation_history.get(user_id, [])
+
+    def _handle_recommendation_query(
+        self, query: str, profile: "UserProfile", user_id: str
+    ) -> str:
         """
-        Handle recommendation queries using RAG with profile context.
+        Handle recommendation queries by delegating to RecommenderAgent.
 
         Args:
             query: User query
             profile: User profile with preferences
+            user_id: User identifier for context
 
         Returns:
             Formatted response with event recommendations
         """
-        log_info("handling_recommendation_query", query=query[:100])
+        log_info(
+            "delegating_to_recommender_agent",
+            query=query[:100],
+            user_id=user_id,
+        )
 
-        # Query the vector store with profile
-        results = self.vector_store.query(query, k=5, profile=profile)
+        # Delegate to RecommenderAgent
+        results = self.recommender_agent.recommend(
+            query=query,
+            profile=profile,
+            k=5,
+        )
 
-        if not results:
-            return "I couldn't find any events matching your query. Could you try rephrasing?"
-
-        # Format response
-        response_lines = [f"I found {len(results)} events that might interest you:\n"]
-
-        for i, result in enumerate(results, 1):
-            response_lines.append(f"{i}. **{result.title}** at {result.venue_name}")
-            response_lines.append(f"   {result.description[:150]}...")
-            response_lines.append(f"   📅 {result.start_date} to {result.end_date}")
-            response_lines.append(f"   🎨 {', '.join(result.genres[:3])}")
-            response_lines.append(f"   💰 {result.cost_range}")
-            response_lines.append(f"   🔗 {result.url}\n")
+        # Format recommendations
+        response = self.recommender_agent.format_recommendations(results)
 
         log_info("recommendation_response_generated", num_results=len(results))
-        return "\n".join(response_lines)
+        return response
 
     def _handle_fallback(self, query: str) -> str:
         """
