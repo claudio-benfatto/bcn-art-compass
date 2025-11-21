@@ -1,0 +1,64 @@
+# Cloud Build configuration for BCN Art Compass
+# Deploy to Cloud Run with automated builds
+
+steps:
+  # Build Docker image using Cloud Build's Docker builder
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--tag=gcr.io/$PROJECT_ID/bcn-art-compass:$SHORT_SHA'
+      - '--tag=gcr.io/$PROJECT_ID/bcn-art-compass:latest'
+      - '--cache-from=gcr.io/$PROJECT_ID/bcn-art-compass:latest'
+      - '.'
+    id: 'build-image'
+
+  # Push image to Google Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/bcn-art-compass:$SHORT_SHA'
+    id: 'push-image'
+    waitFor: ['build-image']
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'bcn-art-compass'
+      - '--image=gcr.io/$PROJECT_ID/bcn-art-compass:$SHORT_SHA'
+      - '--region=$_DEPLOY_REGION'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--memory=512Mi'           # Reduced from 1Gi (minimum for Python apps)
+      - '--cpu=1'                  # Reduced from 2 (sufficient for MVP)
+      - '--timeout=60'             # Reduced from 300s (1 min should be enough)
+      - '--max-instances=1'        # Reduced from 2 (prevent multiple instances)
+      - '--min-instances=0'        # Scale to zero when idle
+      - '--concurrency=80'         # Default, handle multiple requests per instance
+      - '--cpu-throttling'         # Throttle CPU when idle (cost savings)
+      - '--set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID'
+      - '--set-env-vars=GOOGLE_CLOUD_LOCATION=$_DEPLOY_REGION'
+      - '--set-env-vars=USE_FIRESTORE=true'
+      - '--set-env-vars=USE_VERTEX_RAG=false'
+      - '--set-env-vars=USE_LOCAL_LLM=false'
+    id: 'deploy-cloud-run'
+    waitFor: ['push-image']
+
+# Store images in Google Container Registry
+images:
+  - 'gcr.io/$PROJECT_ID/bcn-art-compass:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/bcn-art-compass:latest'
+
+# Build options - cost-optimized
+options:
+  machineType: 'E2_HIGHCPU_8'  # Changed from N1 to E2 (30% cheaper)
+  logging: CLOUD_LOGGING_ONLY
+
+# Substitutions (can be overridden at runtime)
+substitutions:
+  _DEPLOY_REGION: 'us-central1'
+
+# Timeout for entire build (10 minutes, reduced from 15)
+timeout: 600s
