@@ -51,10 +51,10 @@ class VectorStore:
 
         os.makedirs(persist_directory, exist_ok=True)
 
-        # Initialize ChromaDB client
-        self.client = chromadb.Client(
-            Settings(
-                persist_directory=persist_directory,
+        # Initialize ChromaDB persistent client
+        self.client = chromadb.PersistentClient(
+            path=persist_directory,
+            settings=Settings(
                 anonymized_telemetry=False,
             )
         )
@@ -273,7 +273,7 @@ class VectorStore:
                 score += 0.2
                 log_info(
                     "profile_boost_applied",
-                    event=metadata["title"],
+                    event_title=metadata["title"],
                     genre=fav_genre,
                     boost=0.2,
                 )
@@ -284,7 +284,7 @@ class VectorStore:
                 score -= 0.3
                 log_info(
                     "profile_penalty_applied",
-                    event=metadata["title"],
+                    event_title=metadata["title"],
                     genre=disliked_genre,
                     penalty=-0.3,
                 )

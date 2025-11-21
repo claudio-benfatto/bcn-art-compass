@@ -75,14 +75,42 @@ async def root() -> dict:
 
 @app.get("/healthz")
 async def health_check() -> dict:
-    """Health check endpoint."""
-    return {"status": "healthy"}
+    """
+    Liveness probe endpoint.
+
+    Returns 200 if the application is running, regardless of dependencies.
+    Used by container orchestrators to determine if the container should be restarted.
+    """
+    return {
+        "status": "healthy",
+        "service": "bcn-art-compass-api",
+        "version": "0.1.0",
+    }
 
 
 @app.get("/readyz")
 async def readiness_check() -> dict:
-    """Readiness check endpoint."""
-    return {"status": "ready"}
+    """
+    Readiness probe endpoint.
+
+    Returns 200 if the application is ready to serve traffic.
+    Checks that critical dependencies (orchestrator) are initialized.
+    Used by container orchestrators to determine if traffic should be routed.
+    """
+    if orchestrator is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Service not ready: orchestrator not initialized",
+        )
+
+    return {
+        "status": "ready",
+        "service": "bcn-art-compass-api",
+        "version": "0.1.0",
+        "components": {
+            "orchestrator": "initialized",
+        },
+    }
 
 
 @app.post("/chat", response_model=ChatResponse)

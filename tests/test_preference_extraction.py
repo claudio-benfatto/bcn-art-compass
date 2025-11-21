@@ -22,8 +22,9 @@ def temp_storage(tmp_path):
 
 @pytest.fixture
 def profile_agent(temp_storage):
-    """Create a ProfileAgent with temporary storage."""
-    return ProfileAgent(storage=temp_storage)
+    """Create a ProfileAgent with temporary storage and force Gemini mode for testing."""
+    # Force use of Gemini (not local LLM) for consistent tests
+    return ProfileAgent(storage=temp_storage, use_local_llm=False)
 
 
 @pytest.fixture

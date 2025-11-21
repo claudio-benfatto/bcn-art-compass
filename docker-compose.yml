@@ -1,0 +1,32 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # Google API Key for Gemini embeddings and LLM
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      # Logging configuration
+      - LOG_LEVEL=INFO
+      # Port configuration
+      - PORT=8000
+    volumes:
+      # Persist ChromaDB and user profiles
+      - ./storage:/app/storage
+      # Mount data files for easy updates
+      - ./examples/data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - bcn-art-compass
+
+networks:
+  bcn-art-compass:
+    driver: bridge

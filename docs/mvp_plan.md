@@ -179,7 +179,9 @@ Locally you can refine results with natural language preferences.
 
 ---
 
-## Milestone 4 — Day 7–8
+---
+
+## Milestone 4 — Day 7–8 ✅ COMPLETE
 Clean Multi-Agent Workflow
 
 ### Goal
@@ -200,45 +202,80 @@ Flow:
 ### Tasks
 
 #### Recommender Agent
-- Rank function incorporating profile:
+- ✅ Rank function incorporating profile:
   - score += profile.likes
   - score -= profile.dislikes
 
 #### Orchestrator Agent
 
-- Add conversation context tracking (last user query, last results)
+- ✅ Add conversation context tracking (last user query, last results)
 
 #### Tools
-- Add mock geocoder MCP tool (returns sample lat/lon)
+- ✅ Add mock geocoder MCP tool (returns sample lat/lon)
 
 #### Tests
-- Full integration test: user → update memory → get refined recs
-- Test routing logic inside orchestrator
+- ✅ Full integration test: user → update memory → get refined recs
+- ✅ Test routing logic inside orchestrator
 
-✔️ Working Checkpoint 4
+### Deliverables
 
-A fully functional multi-agent demo.
+✅ **Milestone 4 COMPLETE**
+- ✅ RecommenderAgent with dedicated recommendation logic (146 lines)
+- ✅ Orchestrator enhanced with conversation_history tracking
+- ✅ GeocoderTool with 18 Barcelona locations (176 lines)
+- ✅ All 43 tests passing after architecture refactoring
+- ✅ Clean separation of concerns: Orchestrator coordinates, ProfileAgent manages memory, RecommenderAgent handles RAG
 
-## Milestone 5 — Day 9–10
+**Key Architectural Improvements:**
+- 3-agent system with single responsibilities
+- Conversation context for multi-turn interactions
+- Extensible tool framework (geocoder as example)
+- Backward-compatible refactoring (all tests passing)
+
+---
+
+## Milestone 5 — Day 9–10 ✅ COMPLETE
 Local Demo Polishing + CLI + Docker
 
 ### Goal
-Make local demo production-espresso.
+Make local demo production-ready with CLI and containerization.
 
 #### Tasks
-- Add CLI interface (text-based chat)
-- Add Dockerfile using uv:
-- RUN uv sync --frozen
-- Add health endpoints /healthz /readyz
-- Add more logs with correlation IDs
+- ✅ Add CLI interface (text-based chat)
+- ✅ Add Dockerfile using uv:
+  - Multi-stage build for smaller image
+  - HEALTHCHECK instruction
+- ✅ Add docker-compose.yml for easy local testing
+- ✅ Add health endpoints /healthz /readyz
+- ✅ Add more logs with correlation IDs (already implemented)
 
 #### Tests
 
-- Integration test against local Dockerized service
+- ✅ Integration test against local Dockerized service
 
-✔️ Working Checkpoint 5
+### Deliverables
 
-Polished local demo + docker deployable service.
+✅ **Milestone 5 COMPLETE**
+- ✅ Interactive CLI (cli.py) with conversational interface
+- ✅ Enhanced health endpoints:
+  - `/healthz`: Liveness probe (always 200)
+  - `/readyz`: Readiness probe (200 when ready, 503 otherwise)
+- ✅ Multi-stage Dockerfile with uv for fast builds
+- ✅ docker-compose.yml with volume mounts and health checks
+- ✅ .dockerignore for optimized build context
+- ✅ .env.example for configuration template
+- ✅ Docker integration tests (7 tests)
+- ✅ Test script (scripts/test_docker.sh)
+- ✅ Updated documentation (README.md)
+
+**Key Features:**
+- CLI provides interactive chat experience with multi-turn context
+- Docker setup ready for local and cloud deployment
+- Health checks compatible with Kubernetes/Cloud Run
+- Correlation IDs throughout for request tracing
+- Complete test coverage including Dockerized service
+
+---
 
 ## Milestone 6 — Day 11–12
 
@@ -296,6 +333,6 @@ Fully functioning multi-agent RAG recommender
 | 4 | CP2 | ✔ | profile-aware RAG |
 | 6 | CP3 | ✔ | preference learning |
 | 8 | CP4 | ✔ | multi-agent flow |
-| 10 | CP5 | ✔ | polished local demo |
+| 10 | CP5 | ✔ | polished local demo + CLI + Docker |
 | 12 | CP6 | ✔ | Cloud Run support |
 | 14 | Final | ✔ | full MVP |
