@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, List, Optional
 from observability import log_info
 from rag.models import EventWithVenue
 from rag.vector_store import VectorStore
+from tools.geocoder import geocoder_tool
 
 if TYPE_CHECKING:
     from memory.models import UserProfile
@@ -25,7 +26,8 @@ class RecommenderAgent:
     Agent specialized in generating personalized event recommendations.
 
     Uses RAG for semantic search and applies user profile preferences
-    to refine and rank results.
+    to refine and rank results. Includes distance-based scoring when user
+    location is available.
     """
 
     def __init__(self, vector_store: Optional[VectorStore] = None):
@@ -36,6 +38,7 @@ class RecommenderAgent:
             vector_store: VectorStore instance for RAG queries. If None, creates a new one
         """
         self.vector_store = vector_store or VectorStore()
+        self.geocoder = geocoder_tool
         log_info("recommender_agent_initialized")
 
     def recommend(
@@ -96,11 +99,10 @@ class RecommenderAgent:
         """
         Apply advanced ranking logic beyond basic scoring.
 
-        This method can be extended with more sophisticated ranking:
-        - Multi-criteria scoring
-        - Diversity adjustments
-        - Temporal relevance
-        - Location proximity (when available)
+        Enhances results with:
+        - Location proximity scoring (when user location is available)
+        - Diversity adjustments (future)
+        - Temporal relevance (future)
 
         Args:
             results: List of results from vector store
@@ -109,14 +111,77 @@ class RecommenderAgent:
         Returns:
             Re-ranked results
         """
-        # Note: Basic scoring is already done in vector_store.query()
-        # This method is a placeholder for future enhancements like:
-        # - Diversity: avoid too many similar events
-        # - Recency: prefer newer events
-        # - Popularity: consider user engagement metrics
-        # - Location: prefer closer venues (requires geocoder)
+        # Apply location-based scoring if user has a location
+        if profile.location:
+            results = self._apply_location_scoring(results, profile.location)
 
-        # For now, trust the vector store's profile-aware scoring
+        # Sort by score if available
+        if results and hasattr(results[0], "score"):
+            results.sort(key=lambda x: x.score, reverse=True)
+
+        return results
+
+    def _apply_location_scoring(
+        self,
+        results: List[EventWithVenue],
+        user_location: str,
+    ) -> List[EventWithVenue]:
+        """
+        Apply distance-based scoring to prioritize nearby events.
+
+        Args:
+            results: List of events to score
+            user_location: User's location (e.g., "Gràcia", "Barcelona")
+
+        Returns:
+            Results with adjusted scores based on proximity
+        """
+        # Get user coordinates
+        user_coords = self.geocoder.geocode(user_location)
+        if not user_coords:
+            log_info("location_scoring_skipped", reason="user_location_not_found")
+            return results
+
+        user_lat, user_lon = user_coords["lat"], user_coords["lon"]
+        log_info(
+            "applying_location_scoring",
+            user_location=user_location,
+            user_coords=f"{user_lat},{user_lon}",
+        )
+
+        for event in results:
+            # Calculate distance
+            distance_km = self.geocoder.calculate_distance(
+                user_lat, user_lon, event.latitude, event.longitude
+            )
+
+            # Apply proximity boost
+            # Events within 2km: +0.15 boost
+            # Events 2-5km: +0.10 boost
+            # Events 5-10km: +0.05 boost
+            # Events >10km: no boost
+            if distance_km <= 2:
+                proximity_boost = 0.15
+            elif distance_km <= 5:
+                proximity_boost = 0.10
+            elif distance_km <= 10:
+                proximity_boost = 0.05
+            else:
+                proximity_boost = 0.0
+
+            # Add to score if available
+            if hasattr(event, "score"):
+                old_score = event.score
+                event.score += proximity_boost
+                log_info(
+                    "proximity_boost_applied",
+                    event=event.title[:50],
+                    distance_km=round(distance_km, 2),
+                    boost=proximity_boost,
+                    old_score=round(old_score, 3),
+                    new_score=round(event.score, 3),
+                )
+
         return results
 
     def format_recommendations(
@@ -135,7 +200,7 @@ class RecommenderAgent:
             Formatted string with recommendations
         """
         if not results:
-            return "I couldn't find any events matching your query. Could you try rephrasing?"
+            return self._format_no_results_message()
 
         response_lines = [f"I found {len(results)} events that might interest you:\n"]
 
@@ -151,3 +216,19 @@ class RecommenderAgent:
                 response_lines.append(f"   (Match score: {result.score:.3f})\n")
 
         return "\n".join(response_lines)
+
+    def _format_no_results_message(self) -> str:
+        """
+        Generate a helpful message when no results are found.
+
+        Returns:
+            User-friendly message with suggestions
+        """
+        return """I couldn't find any events matching your query. Here are some suggestions:
+
+🎨 **Try broader terms**: Instead of "cubist sculpture", try "sculpture" or "modern art"
+📍 **Expand your area**: Consider nearby neighborhoods
+📅 **Check different dates**: Some events might be seasonal
+❤️ **Tell me your preferences**: Say "I like contemporary art" to help me learn
+
+Would you like me to search for something else?"""

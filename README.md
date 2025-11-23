@@ -1,39 +1,109 @@
 # BCN Art Compass 🎨
 
-Multi-agent LLM system for recommending cultural events in Barcelona using Google ADK, RAG, and user memory.
+**AI-Powered Cultural Events Recommender for Barcelona**
 
-## Project Status
+Multi-agent LLM system that learns your preferences and recommends cultural events using RAG, user memory, and location-based scoring. Built with Google ADK and deployable on Cloud Run.
 
-**Milestone 0 - Day 0 (Setup): ✅ COMPLETE**
-**Milestone 1 - Day 1-2 (Minimal RAG + Orchestrator): ✅ COMPLETE**
-**Milestone 2 - Day 3-4 (Profile Memory): ✅ COMPLETE**
-**Milestone 3 - Day 5-6 (Preference Extraction): ✅ COMPLETE**
-**Milestone 4 - Day 7-8 (Clean Multi-Agent Workflow): ✅ COMPLETE**
-**Milestone 5 - Day 9-10 (Local Demo Polishing + CLI + Docker): ✅ COMPLETE**
-**Milestone 6 - Day 11-12 (Cloud Run Transition Layer): ✅ COMPLETE**
+## 🎯 What It Does
 
-## Features
+Ask in natural language, get personalized art recommendations:
 
+```
+You: "I love contemporary art and sculpture"
+Bot: "I've updated your preferences! You now have contemporary art and sculpture as favorites."
+
+You: "Show me exhibitions near Gràcia"
+Bot: "I found 3 events that might interest you:
+     1. **Contemporary Sculpture Exhibition** at MACBA (2.1 km away)
+        🎨 contemporary art, sculpture
+        💰 €12-15
+        ..."
+```
+
+The system remembers your preferences across conversations and uses them to personalize future recommendations.
+
+## 🏗️ Architecture
+
+```mermaid
+graph TD
+    User[User] --> |Natural language query| API[FastAPI Server]
+    API --> Orch[Orchestrator Agent]
+    
+    Orch --> |Detect intent| Intent{Intent?}
+    
+    Intent --> |Preference update| Profile[Profile Agent]
+    Intent --> |Recommendation| Recommender[Recommender Agent]
+    Intent --> |General| Response[Direct Response]
+    
+    Profile --> |Extract with LLM| Gemini[Gemini / Ollama / Rule-based]
+    Profile --> |Save/Load| Memory[(User Memory<br/>Firestore/JSON)]
+    
+    Recommender --> |Query with filters| RAG[RAG / Vector DB]
+    Recommender --> |Geocode location| Geocoder[Geocoder Tool]
+    Recommender --> |Score by proximity| Ranking[Location-based Ranking]
+    
+    RAG --> |Semantic search| VectorDB[(ChromaDB<br/>Vertex AI Search)]
+    VectorDB --> |Events + venues| Data[Events Dataset]
+    
+    Ranking --> Response
+    Profile --> Response
+    Response --> API
+    API --> User
+    
+    style Orch fill:#e1f5ff
+    style Profile fill:#fff3e0
+    style Recommender fill:#f3e5f5
+    style RAG fill:#e8f5e9
+```
+
+### Agent Responsibilities
+
+| Agent | Purpose | Key Functions |
+|-------|---------|---------------|
+| **Orchestrator** | Routes queries, manages conversation flow | Intent detection, agent coordination, context tracking |
+| **ProfileAgent** | Manages user preferences and memory | Extract preferences (NLP), persist profile, load history |
+| **RecommenderAgent** | Generates personalized recommendations | RAG query, profile-based scoring, location ranking |
+
+## 📊 Project Status
+
+✅ **Milestone 0** - Setup  
+✅ **Milestone 1** - Minimal RAG + Orchestrator  
+✅ **Milestone 2** - Profile Memory  
+✅ **Milestone 3** - Preference Extraction  
+✅ **Milestone 4** - Clean Multi-Agent Workflow  
+✅ **Milestone 5** - Local Demo + CLI + Docker  
+✅ **Milestone 6** - Cloud Run Deployment  
+✅ **Milestone 7** - Final MVP Hardening  
+
+**🎉 MVP COMPLETE - Production Ready!**
+
+## ✨ Features
+
+### Core Capabilities
+- 🤖 **3-Agent Architecture**: Orchestrator, Profile, and Recommender agents working together
+- 🧠 **Learns Your Preferences**: Natural language preference extraction with multiple backends
+- 🎯 **Personalized Recommendations**: Profile-aware scoring (+0.2 boost for favorites, -0.3 penalty for dislikes)
+- 📍 **Location-Aware**: Distance-based ranking (nearby events ranked higher)
+- 💬 **Conversational Interface**: CLI and API for natural language interaction
+- 🔄 **Memory Across Sessions**: Persistent user profiles in Firestore or local JSON
+
+### Technical Features
 - ✅ FastAPI server with health endpoints (/healthz, /readyz)
-- ✅ Structured logging with correlation IDs
-- ✅ RAG search using ChromaDB with **free local embeddings** (zero API cost) or Google Gemini embeddings
-- ✅ **3-agent architecture**: OrchestratorAgent, ProfileAgent, RecommenderAgent
-- ✅ Multi-agent orchestrator with intent detection and conversation tracking
-- ✅ Profile-based personalization with preference tracking
-- ✅ **Natural language preference extraction** with multiple backends:
-  - Google Gemini (cloud, requires API key)
-  - Ollama/Llama (local LLM, free)
-  - Rule-based fallback (simple keyword matching, zero dependencies)
-- ✅ Profile-aware RAG scoring (boosts favorites, penalizes dislikes)
+- ✅ Structured logging with correlation IDs for request tracing
+- ✅ RAG search using ChromaDB (local) or Vertex AI Vector Search (cloud)
+- ✅ **Free local embeddings option** (sentence-transformers) or Google Gemini embeddings
+- ✅ **3 LLM backends for preference extraction**:
+  - Google Gemini (cloud, high quality)
+  - Ollama/Llama (local, free, good quality)
+  - Rule-based fallback (zero dependencies)
+- ✅ Multi-agent orchestrator with intent detection
 - ✅ **Interactive CLI** for conversational event discovery
-- ✅ **Docker & Docker Compose** support for easy deployment
-- ✅ **Cloud Run deployment** with switchable backends:
-  - Firestore for user profiles (auto-detects cloud vs local)
-  - Vertex AI Vector Search support (optional)
-  - Config module for environment detection
-- ✅ 15 cultural events with venue data
+- ✅ **Docker & Docker Compose** support
+- ✅ **Cloud Run deployment** with auto-detection (Firestore/JSON, Vertex/ChromaDB)
+- ✅ 15 cultural events with venue data (expandable)
 - ✅ Event search & geocoding MCP tools
-- ✅ Comprehensive test suite (**52 passing tests including Docker & Firestore**)
+- ✅ **52 passing tests** (unit, integration, Docker, Firestore)
+- ✅ **Evaluation framework** for testing agent quality
 
 ## Quick Start
 
@@ -440,26 +510,73 @@ Each user has a profile stored in JSON:
 
 ### Running Tests
 
+The project includes a comprehensive test suite with 52 passing tests covering unit, integration, Docker, and Firestore scenarios.
+
 ```bash
-# Run all tests (43 passing)
-uv run pytest -v
+# Run all tests
+uv run pytest tests/ -v
 
 # Run specific test suites
-uv run pytest tests/test_preference_extraction.py -v
-uv run pytest tests/test_integration_preferences.py -v
-uv run pytest tests/test_memory.py -v
+uv run pytest tests/test_preference_extraction.py -v  # 11 tests
+uv run pytest tests/test_integration_preferences.py -v  # 4 tests
+uv run pytest tests/test_memory.py -v  # 9 tests
+uv run pytest tests/test_firestore_storage.py -v  # 9 tests
+uv run pytest tests/test_api.py -v  # 7 tests
 
-# Run only unit tests
-uv run pytest -v -m unit
-
-# Run only integration tests
-uv run pytest -v -m integration
-
-# Run Docker integration tests (requires Docker)
+# Run Docker integration tests (requires Docker running)
 RUN_DOCKER_TESTS=true uv run pytest tests/test_docker_integration.py -v
 
 # Or use the test script
 ./scripts/test_docker.sh
+```
+
+**Test Coverage by Feature:**
+- ✅ Preference extraction with all 3 LLM backends
+- ✅ Profile persistence (JSON and Firestore)
+- ✅ RAG vector search with profile-aware scoring
+- ✅ Multi-agent orchestration and routing
+- ✅ API endpoints (chat, health, readiness)
+- ✅ Docker containerization
+- ✅ End-to-end user flows
+
+### Agent Evaluation Framework (Milestone 7)
+
+Test agent quality with predefined test cases:
+
+```bash
+# Run evaluation on all test cases
+uv run python -m evaluation.agent_eval
+
+# Run with verbose output
+uv run python -m evaluation.agent_eval --verbose
+
+# Test specific category
+uv run python -m evaluation.agent_eval --category preference_extraction
+
+# Save results to custom path
+uv run python -m evaluation.agent_eval --output my_results.json
+```
+
+The evaluation framework includes test cases for:
+- **Preference extraction**: Simple likes, dislikes, multiple preferences
+- **Recommendations**: Basic queries, location-based searches
+- **General conversation**: Greetings, help requests
+
+Example output:
+```
+==================================================
+📊 Evaluation Summary
+==================================================
+Total cases: 7
+Passed: 6 (85.71%)
+Failed: 1
+
+By category:
+  preference_extraction: 3/3 (100.0%)
+  recommendation: 2/2 (100.0%)
+  general: 1/2 (50.0%)
+
+✅ Results saved to evaluation/results.json
 ```
 
 ### Code Quality
@@ -610,18 +727,112 @@ open "https://console.cloud.google.com/run/detail/us-central1/bcn-art-compass"
 
 **Total MVP**: $7-15/month (mostly covered by free tiers)
 
+## 🎉 MVP Summary
+
+### What We Built (2-Week Timeline)
+
+This MVP demonstrates a **production-ready multi-agent system** for cultural event recommendations:
+
+#### Core Achievements
+1. ✅ **3-Agent Architecture** with clean separation of concerns
+2. ✅ **Natural Language Understanding** for preference extraction (3 backend options)
+3. ✅ **Personalization Engine** with profile-aware RAG scoring
+4. ✅ **Location-Based Ranking** using geocoding and proximity scoring
+5. ✅ **Persistent Memory** across sessions (Firestore + JSON)
+6. ✅ **Cloud-Ready Deployment** on Cloud Run with auto-detection
+7. ✅ **Comprehensive Testing** (52 tests, evaluation framework)
+
+#### Technical Highlights
+
+**Multi-Agent Orchestration**
+- Orchestrator coordinates 3 specialized agents
+- Intent detection routes to appropriate handler
+- Conversation history for multi-turn context
+- MCP tools for extensibility (geocoding, event search)
+
+**RAG with Personalization**
+- Vector search over 15 events + venues
+- Profile-aware scoring (+0.2 favorite, -0.3 disliked)
+- Location proximity boost (up to +0.15 for nearby events)
+- Free local embeddings or Google API embeddings
+
+**Preference Learning**
+- Extract from natural language: "I love Picasso and contemporary art"
+- Multiple backends: Gemini (best), Ollama (free, good), Rule-based (zero-setup)
+- Persistent across sessions
+- Influences future recommendations
+
+**Production Features**
+- Docker containerization with health checks
+- Cloud Run deployment with Firestore backend
+- Structured logging with correlation IDs
+- Interactive CLI + REST API
+- Evaluation framework for quality testing
+
+#### What Makes This MVP Special
+
+1. **Runs Everywhere**: Local → Docker → Cloud Run with zero code changes
+2. **Cost-Conscious**: Free tier options for all components (~$0-15/month)
+3. **Extensible**: Clean MCP tool interface, modular agents
+4. **Well-Tested**: 52 tests covering unit, integration, Docker, cloud
+5. **User-Focused**: Natural language interaction, learns preferences
+6. **Observable**: Structured logs, health endpoints, correlation tracking
+
+### Next Steps (Post-MVP)
+
+**Data Expansion**
+- [ ] Add more events (100+ instead of 15)
+- [ ] Real-time scraping from event websites
+- [ ] Historical attendance data for popularity scoring
+
+**Enhanced Ranking**
+- [ ] Collaborative filtering (users with similar tastes)
+- [ ] Temporal relevance (prefer upcoming events)
+- [ ] Diversity adjustments (avoid recommending all same genre)
+
+**Production Hardening**
+- [ ] Rate limiting and authentication
+- [ ] Caching layer (Redis) for frequent queries
+- [ ] Monitoring dashboards (Grafana)
+- [ ] A/B testing framework for ranking improvements
+
+**User Experience**
+- [ ] Web frontend (React/Next.js)
+- [ ] Push notifications for new events
+- [ ] Calendar integration (Google Calendar, iCal)
+- [ ] Social sharing of events
+
+**AI Enhancements**
+- [ ] Fine-tune embeddings on art domain
+- [ ] Multi-modal search (image + text)
+- [ ] Conversational recommendations ("What about something different?")
+- [ ] Explanation generation ("Recommended because you like X")
+
 ## Tech Stack
 
 - **Framework**: Google ADK (Agent Development Kit)
-- **LLM**: Google Gemini (gemini-1.5-flash)
+- **LLM**: Google Gemini (gemini-2.5-flash) / Ollama Llama3.2 / Rule-based
 - **Embeddings**: 
   - Local: sentence-transformers (all-MiniLM-L6-v2) - Free
   - Cloud: Google text-embedding-004 - ~$0.00001/1K chars
 - **Vector DB**: ChromaDB (local), Vertex AI Search (cloud)
+- **Memory**: Firestore (cloud), JSON (local)
 - **API**: FastAPI
-- **Observability**: structlog
-- **Testing**: pytest
-- **Deployment**: Cloud Run (future)
+- **Observability**: structlog with correlation IDs
+- **Testing**: pytest (52 passing tests)
+- **Deployment**: Docker, Cloud Run
+
+## Contributing
+
+This is an MVP project. Contributions welcome!
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Add tests for your changes
+4. Ensure all tests pass (`uv run pytest tests/ -v`)
+5. Commit your changes (`git commit -m 'Add amazing feature'`)
+6. Push to the branch (`git push origin feature/amazing-feature`)
+7. Open a Pull Request
 
 ## License
 

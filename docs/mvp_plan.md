@@ -327,22 +327,56 @@ Introduce cloud-switchable components.
 - Deployment automation with Cloud Build
 - Cost-optimized: ~$7-15/month (mostly free tier)
 
-## Milestone 7 — Day 13–14
+## Milestone 7 — Day 13–14 ✅ COMPLETE
 Final MVP Hardening
+
+### Goal
+Polish the MVP with advanced ranking, better error handling, and comprehensive documentation.
 
 ### Tasks
 
-- Improve ranking heuristics using location proximity (mock geocoder OK)
-- Better fallback logic (“no results found”)
-- Add sample evaluation harness (optional, not default)
-- Produce documentation for usage & architecture
+- ✅ Improve ranking heuristics using location proximity
+  - ✅ Integrated GeocoderTool in RecommenderAgent
+  - ✅ Added distance-based scoring (up to +0.15 boost for nearby events)
+  - ✅ Proximity tiers: 0-2km (+0.15), 2-5km (+0.10), 5-10km (+0.05)
+- ✅ Better fallback logic ("no results found")
+  - ✅ Added helpful suggestions with emojis
+  - ✅ Guides users on how to refine queries
+  - ✅ Encourages preference sharing for better results
+- ✅ Add sample evaluation harness
+  - ✅ Created evaluation/agent_eval.py module
+  - ✅ 7 predefined test cases (preferences, recommendations, general)
+  - ✅ CLI tool with verbose and category filtering options
+  - ✅ JSON output for reproducible testing
+- ✅ Produce documentation for usage & architecture
+  - ✅ Enhanced README with architecture Mermaid diagram
+  - ✅ Added "What It Does" section with examples
+  - ✅ Comprehensive feature documentation
+  - ✅ Testing and evaluation guide
+  - ✅ MVP Summary with achievements and next steps
+
+### Deliverables
+
+✅ **Milestone 7 COMPLETE**
+- ✅ Location-aware ranking in RecommenderAgent (proximity boost)
+- ✅ Improved "no results" message with actionable suggestions
+- ✅ AgentEvaluator framework with 7 test cases
+- ✅ Enhanced README with architecture diagram and MVP summary
+- ✅ All 52 tests still passing after enhancements
+
+**Key Features Added:**
+- Distance-based event ranking prioritizes nearby venues
+- Helpful fallback messages guide users when no results found
+- Evaluation framework enables reproducible quality testing
+- Complete documentation for MVP handoff
 
 ✔️ Final MVP
 
 Fully functioning multi-agent RAG recommender
 - Preference learning
+- Location-aware recommendations
 - Local + Cloud Run compatibility
-- Tests
+- Tests + Evaluation framework
 - Observability
 - CLI + API
 - Extensible to production
