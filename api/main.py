@@ -156,11 +156,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
         )
 
     except Exception as e:
-        log_info(
+        log_error(
             "chat_request_error",
             user_id=request.user_id,
             error=str(e),
-            level="error",
         )
         raise HTTPException(status_code=500, detail="Internal server error")
 
