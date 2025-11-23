@@ -4,27 +4,36 @@ Interactive CLI for BCN Art Compass.
 
 Provides a text-based conversational interface for discovering cultural events
 in Barcelona. Supports multi-turn conversations with preference learning.
+
+Automatically detects environment and uses either:
+- Local ChromaDB + sentence-transformers (default)
+- Vertex AI Vector Search + Gemini embeddings (if USE_VERTEX_RAG=true)
 """
 
 import asyncio
+import os
 import sys
 import uuid
 from pathlib import Path
 
+import config
 from agents.orchestrator import OrchestratorAgent
 from agents.profile_agent import ProfileAgent
 from agents.recommender_agent import RecommenderAgent
 from memory.storage import MemoryStorage
 from observability import log_event
-from rag.embeddings_local import LocalEmbeddingGenerator
-from rag.vector_store import VectorStore
 
 
 def print_banner():
     """Print welcome banner."""
+    app_config = config.get_config()
+    rag_mode = "Vertex AI" if app_config.use_vertex_rag else "Local ChromaDB"
+    
     print("\n" + "=" * 60)
     print("🎨 BCN Art Compass - Your Cultural Event Guide")
     print("=" * 60)
+    print(f"\n📍 Environment: {app_config.environment}")
+    print(f"🔍 RAG Backend: {rag_mode}")
     print("\nWelcome! I can help you discover art exhibitions, museums,")
     print("and cultural events in Barcelona.")
     print("\nCommands:")
@@ -54,27 +63,39 @@ def initialize_system():
     storage_dir.mkdir(exist_ok=True)
     memory_storage = MemoryStorage(str(storage_dir / "profiles.json"))
 
-    # Initialize RAG components
-    print("⏳ Loading embedding model (first run may take a minute)...")
-    embedding_generator = LocalEmbeddingGenerator()
+    # Initialize RAG components based on config
+    app_config = config.get_config()
+    
+    if app_config.use_vertex_rag:
+        print("⏳ Connecting to Vertex AI Vector Search...")
+        print(f"   Project: {app_config.project_id}")
+        print(f"   Location: {app_config.location}")
+        
+        from rag.vector_store_vertex import VertexVectorStore
+        vector_store = VertexVectorStore.from_env()
+        print(f"✅ Vertex AI connected with {len(vector_store.events_map)} events")
+    else:
+        print("⏳ Loading local embedding model (first run may take a minute)...")
+        from rag.embeddings_local import LocalEmbeddingGenerator
+        from rag.vector_store import VectorStore
+        
+        embedding_generator = LocalEmbeddingGenerator()
+        print("⏳ Initializing local vector store...")
+        vector_store = VectorStore(
+            collection_name="events",
+            embedding_generator=embedding_generator,
+            persist_directory="storage/chroma_db"
+        )
 
-    print("⏳ Initializing vector store...")
-    vector_store = VectorStore(
-        collection_name="events",
-        embedding_generator=embedding_generator,
-        persist_directory="storage/chroma_db"
-    )
-
-    # Check if vector store has data
-    try:
-        # Try a test query to see if data is loaded
-        test_results = vector_store.collection.count()
-        if test_results == 0:
-            print("\n⚠️  Warning: Vector store is empty!")
-            print("Please run: PYTHONPATH=$PWD uv run python scripts/init_vector_store.py")
-            print("Then restart the CLI.\n")
-    except Exception:
-        pass  # Continue anyway
+        # Check if vector store has data
+        try:
+            test_results = vector_store.collection.count()
+            if test_results == 0:
+                print("\n⚠️  Warning: Vector store is empty!")
+                print("Please run: PYTHONPATH=$PWD uv run python scripts/init_vector_store.py")
+                print("Then restart the CLI.\n")
+        except Exception:
+            pass  # Continue anyway
 
     # Initialize agents
     profile_agent = ProfileAgent(storage=memory_storage)

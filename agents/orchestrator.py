@@ -20,6 +20,37 @@ if TYPE_CHECKING:
     from memory.models import UserProfile
 
 
+def _create_vector_store():
+    """Create the appropriate vector store based on config."""
+    try:
+        import config
+        log_info("config_imported_successfully")
+        
+        should_use_vertex = config.should_use_vertex_rag()
+        log_info("config_check_complete", use_vertex=should_use_vertex)
+        
+        if should_use_vertex:
+            # Use Vertex AI Vector Search
+            from rag.vector_store_vertex import VertexVectorStore
+            log_info("creating_vertex_vector_store")
+            store = VertexVectorStore.from_env()
+            log_info("vertex_vector_store_created_successfully")
+            return store
+        else:
+            # Use local ChromaDB
+            from rag.vector_store import VectorStore
+            log_info("creating_chroma_vector_store")
+            return VectorStore()
+    except Exception as e:
+        log_info("vector_store_creation_failed", error=str(e), error_type=type(e).__name__)
+        import traceback
+        traceback.print_exc()
+        # Fallback to ChromaDB
+        from rag.vector_store import VectorStore
+        log_info("falling_back_to_chroma")
+        return VectorStore()
+
+
 class OrchestratorAgent:
     """
     Orchestrator for multi-agent workflow coordination.
@@ -44,18 +75,15 @@ class OrchestratorAgent:
         Args:
             recommender_agent: RecommenderAgent instance. If None, creates a new one
             profile_agent: ProfileAgent instance. If None, creates a new one
-            use_local_embeddings: Passed to RecommenderAgent for embedding choice
+            use_local_embeddings: Deprecated, use config.py instead
         """
+        # Create vector store based on config
+        vector_store = _create_vector_store()
+        
         self.recommender_agent = recommender_agent or RecommenderAgent(
-            vector_store=None if use_local_embeddings is None else
-            __import__('rag.vector_store', fromlist=['VectorStore']).VectorStore(
-                use_local_embeddings=use_local_embeddings
-            )
+            vector_store=vector_store
         )
         self.profile_agent = profile_agent or ProfileAgent()
-
-        # Conversation context (Milestone 4)
-        self.conversation_history: dict = {}  # user_id -> list of (query, response) tuples
 
         # Conversation context (Milestone 4)
         self.conversation_history: dict = {}  # user_id -> list of (query, response) tuples

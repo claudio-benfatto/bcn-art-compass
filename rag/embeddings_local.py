@@ -2,11 +2,19 @@
 Local embedding generation using Sentence Transformers.
 
 Free alternative to Google's embedding API for local development.
+NOTE: This module requires sentence-transformers which is not installed
+in cloud deployments to save space and cost. Cloud deployments should use
+Google's Gemini embeddings API instead.
 """
 
 from typing import Optional
 
-from sentence_transformers import SentenceTransformer
+try:
+    from sentence_transformers import SentenceTransformer
+    SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
+    SentenceTransformer = None
 
 from observability import log_debug, log_error, log_info
 
@@ -20,6 +28,9 @@ class LocalEmbeddingGenerator:
     - Fast (produces 384-dimensional embeddings)
     - Good quality for semantic search
     - Only ~80MB download
+    
+    NOTE: Requires sentence-transformers to be installed. Not available
+    in cloud deployments - use Gemini embeddings API instead.
     """
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
@@ -27,10 +38,20 @@ class LocalEmbeddingGenerator:
         Initialize the local embedding generator.
 
         Args:
-            model_name: Name of the sentence-transformers model to use
+            model_name: Name of the sentence-transformers model to use.
                        Default: 'all-MiniLM-L6-v2' (fast, good quality)
                        Alternative: 'all-mpnet-base-v2' (slower, better quality)
+            
+        Raises:
+            RuntimeError: If sentence-transformers is not installed
         """
+        if not SENTENCE_TRANSFORMERS_AVAILABLE:
+            raise RuntimeError(
+                "sentence-transformers is not installed. "
+                "This is expected in cloud deployments. "
+                "Use Gemini embeddings API instead by setting USE_LOCAL_LLM=false"
+            )
+        
         self.model_name = model_name
         log_info("loading_local_embedding_model", model=model_name)
 

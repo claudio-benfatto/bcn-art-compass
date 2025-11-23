@@ -137,3 +137,14 @@ def get_config() -> AppConfig:
         AppConfig: Configuration instance
     """
     return AppConfig.from_env()
+
+
+def should_use_vertex_rag() -> bool:
+    """
+    Check if Vertex AI RAG should be used.
+    
+    Returns:
+        bool: True if Vertex AI RAG should be used
+    """
+    config = get_config()
+    return config.use_vertex_rag

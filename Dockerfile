@@ -10,11 +10,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 # Set working directory
 WORKDIR /app
 
-# Copy dependency files
-COPY pyproject.toml uv.lock ./
+# Copy minimal cloud requirements (excludes heavy local-only deps)
+COPY requirements-cloud.txt ./requirements.txt
 
 # Install dependencies into a virtual environment
-RUN uv sync --frozen --no-dev
+RUN uv pip install --system -r requirements.txt
 
 # Stage 2: Runtime
 FROM python:3.13-slim
@@ -22,35 +22,36 @@ FROM python:3.13-slim
 # Set working directory
 WORKDIR /app
 
-# Copy virtual environment from builder
-COPY --from=builder /app/.venv /app/.venv
+# Copy installed packages from builder
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY agents ./agents
 COPY api ./api
 COPY memory ./memory
-COPY models ./models
 COPY observability ./observability
 COPY rag ./rag
 COPY tools ./tools
+COPY config.py ./config.py
+COPY main.py ./main.py
 
 # Copy data files
-COPY examples/data ./data
+COPY data ./data
 
 # Create storage directory for ChromaDB and profiles
 RUN mkdir -p storage/chromadb
 
 # Set environment variables
-ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
-ENV PORT=8000
+ENV PORT=8080
 
 # Expose port
-EXPOSE 8000
+EXPOSE 8080
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"
 
 # Run the application
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8080"]

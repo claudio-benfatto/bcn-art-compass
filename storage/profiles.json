@@ -10,5 +10,29 @@
     "preferred_distance_km": null,
     "created_at": "2025-11-21T12:06:54.052646",
     "updated_at": "2025-11-21T12:06:54.052692"
+  },
+  "claudio": {
+    "user_id": "claudio",
+    "location": null,
+    "favorite_genres": [
+      "contemporary art"
+    ],
+    "disliked_genres": [],
+    "favorite_artists": [],
+    "preferred_distance_km": null,
+    "created_at": "2025-11-22T22:28:10.416448",
+    "updated_at": "2025-11-22T22:30:33.587689"
+  },
+  "test-pref": {
+    "user_id": "test-pref",
+    "location": null,
+    "favorite_genres": [
+      "contemporary art"
+    ],
+    "disliked_genres": [],
+    "favorite_artists": [],
+    "preferred_distance_km": null,
+    "created_at": "2025-11-22T22:29:26.416458",
+    "updated_at": "2025-11-22T22:29:26.416535"
   }
 }

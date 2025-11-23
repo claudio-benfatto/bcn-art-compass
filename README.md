@@ -10,6 +10,7 @@ Multi-agent LLM system for recommending cultural events in Barcelona using Googl
 **Milestone 3 - Day 5-6 (Preference Extraction): ✅ COMPLETE**
 **Milestone 4 - Day 7-8 (Clean Multi-Agent Workflow): ✅ COMPLETE**
 **Milestone 5 - Day 9-10 (Local Demo Polishing + CLI + Docker): ✅ COMPLETE**
+**Milestone 6 - Day 11-12 (Cloud Run Transition Layer): ✅ COMPLETE**
 
 ## Features
 
@@ -26,9 +27,13 @@ Multi-agent LLM system for recommending cultural events in Barcelona using Googl
 - ✅ Profile-aware RAG scoring (boosts favorites, penalizes dislikes)
 - ✅ **Interactive CLI** for conversational event discovery
 - ✅ **Docker & Docker Compose** support for easy deployment
+- ✅ **Cloud Run deployment** with switchable backends:
+  - Firestore for user profiles (auto-detects cloud vs local)
+  - Vertex AI Vector Search support (optional)
+  - Config module for environment detection
 - ✅ 15 cultural events with venue data
 - ✅ Event search & geocoding MCP tools
-- ✅ Comprehensive test suite (**43 passing tests + Docker integration tests**)
+- ✅ Comprehensive test suite (**52 passing tests including Docker & Firestore**)
 
 ## Quick Start
 
@@ -305,12 +310,14 @@ bcn-art-compass/
 ├── api/                 # FastAPI application
 │   └── main.py         # API endpoints with health checks (M5)
 ├── cli.py              # Interactive CLI interface (M5)
+├── config.py           # Cloud configuration & environment detection (M6)
 ├── data/                # Event and venue data
 │   ├── events.yaml     # 15 cultural events
 │   └── venues.yaml     # 12 venues in Barcelona
 ├── memory/              # User profile storage (M2)
 │   ├── models.py       # UserProfile Pydantic model
-│   └── storage.py      # JSON-based persistence
+│   ├── storage.py      # JSON-based persistence
+│   └── storage_firestore.py # Firestore backend (M6)
 ├── observability/      # Structured logging
 │   └── log_event.py   # Logging with correlation IDs
 ├── rag/                # RAG vector search
@@ -318,17 +325,21 @@ bcn-art-compass/
 │   ├── embeddings.py   # Google Gemini embedding generation
 │   ├── embeddings_local.py  # Local sentence-transformers (free!)
 │   ├── vector_store.py # ChromaDB with profile-aware scoring
+│   ├── vector_store_vertex.py # Vertex AI Vector Search (M6)
 │   └── data_loader.py  # YAML data loading
 ├── scripts/            # Utility scripts
 │   ├── init_vector_store.py  # Initialize ChromaDB
 │   ├── demo_preferences.py   # Demo preference extraction
+│   ├── deploy.sh       # Cloud Run deployment (M6)
+│   ├── smoke_test.py   # Cloud endpoint testing (M6)
 │   └── test_docker.sh  # Docker integration test runner (M5)
 ├── storage/            # Local data storage (generated)
 │   ├── chromadb/       # ChromaDB persistence
 │   └── profiles.json   # User profiles
-├── tests/              # Test suite (43 + Docker tests)
+├── tests/              # Test suite (52 tests)
 │   ├── test_api.py    # API integration tests
 │   ├── test_memory.py  # Memory storage tests
+│   ├── test_firestore_storage.py  # Firestore tests (M6)
 │   ├── test_preference_extraction.py  # Preference extraction
 │   ├── test_integration_preferences.py  # End-to-end flow
 │   ├── test_docker_integration.py  # Docker service tests (M5)
@@ -336,6 +347,7 @@ bcn-art-compass/
 ├── tools/              # MCP tools
 │   ├── event_search.py # Event search tool using RAG
 │   └── geocoder.py    # Mock geocoding tool (M4)
+├── cloudbuild.yaml    # Google Cloud Build config (M6)
 ├── Dockerfile         # Multi-stage Docker build (M5)
 ├── docker-compose.yml # Local Docker orchestration (M5)
 ├── .dockerignore      # Docker build exclusions (M5)
@@ -460,12 +472,143 @@ uv run ruff check .
 uv run ruff check --fix .
 ```
 
-## Next Steps (Milestone 6+)
+## Cloud Deployment (Milestone 6) 🚀
 
-- Cloud Run deployment with Vertex AI Search
-- Firestore backend for user profiles
-- Enhanced ranking with geographic proximity
-- Calendar integration MCP tool
+### Architecture
+
+The system supports **switchable backends** for seamless local-to-cloud transition:
+
+| Component | Local (Free) | Cloud (Production) |
+|-----------|-------------|-------------------|
+| **Vector Store** | ChromaDB | Vertex AI Vector Search |
+| **User Profiles** | JSON file | Firestore |
+| **LLM** | Rule-based/Ollama | Google Gemini |
+| **Embeddings** | sentence-transformers | text-embedding-005 |
+
+### Environment Variables
+
+```bash
+# Environment detection (auto-set in Cloud Run)
+K_SERVICE=bcn-art-compass        # Cloud Run service name
+GOOGLE_CLOUD_PROJECT=my-project  # GCP project ID
+GOOGLE_CLOUD_LOCATION=us-central1
+
+# Backend selection (auto-detected based on environment)
+USE_FIRESTORE=true    # Use Firestore (default: true in cloud)
+USE_VERTEX_RAG=false  # Use Vertex AI Vector Search (optional)
+USE_LOCAL_LLM=false   # Use local LLM (default: false in cloud)
+
+# Local overrides
+USE_FIRESTORE=false   # Force JSON storage locally
+USE_LOCAL_LLM=true    # Force rule-based/Ollama locally
+```
+
+### Prerequisites
+
+1. **Google Cloud Project**
+   ```bash
+   # Create project
+   gcloud projects create bcn-art-compass --name="BCN Art Compass"
+   
+   # Set project
+   gcloud config set project bcn-art-compass
+   ```
+
+2. **Enable APIs** (handled by deploy script)
+   - Cloud Build API
+   - Cloud Run API
+   - Firestore API
+   - Artifact Registry API
+
+3. **Initialize Firestore**
+   ```bash
+   gcloud firestore databases create \
+     --location=us-central1 \
+     --project=bcn-art-compass
+   ```
+
+### Deploy to Cloud Run
+
+```bash
+# Deploy using the automated script
+./scripts/deploy.sh bcn-art-compass us-central1
+
+# Or manually with Cloud Build
+gcloud builds submit \
+  --config=cloudbuild.yaml \
+  --substitutions=_DEPLOY_REGION=us-central1
+
+# Get service URL
+gcloud run services describe bcn-art-compass \
+  --region=us-central1 \
+  --format="value(status.url)"
+```
+
+### Test Deployed Service
+
+```bash
+# Using the smoke test script
+./scripts/smoke_test.py https://bcn-art-compass-xyz.run.app
+
+# Manual tests
+curl https://bcn-art-compass-xyz.run.app/healthz
+curl https://bcn-art-compass-xyz.run.app/readyz
+
+curl -X POST https://bcn-art-compass-xyz.run.app/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Show me art exhibitions", "user_id": "test"}'
+```
+
+### Configuration Module
+
+The `config.py` module auto-detects the environment and provides appropriate settings:
+
+```python
+from config import get_config
+
+config = get_config()
+print(config.summary())
+# {
+#   "environment": "cloud_run",
+#   "is_cloud": true,
+#   "storage": {"profile": "firestore", "rag": "chromadb"},
+#   "llm": {"backend": "gemini", "model": "gemini-1.5-flash"}
+# }
+```
+
+### Monitoring
+
+```bash
+# View logs
+gcloud run services logs read bcn-art-compass \
+  --region=us-central1 \
+  --limit=50
+
+# Follow logs in real-time
+gcloud run services logs tail bcn-art-compass \
+  --region=us-central1
+
+# View metrics in Cloud Console
+open "https://console.cloud.google.com/run/detail/us-central1/bcn-art-compass"
+```
+
+### Cost Estimation (Monthly)
+
+**Cloud Run**:
+- Free tier: 2M requests, 360K GB-seconds
+- After: ~$0.00002/request
+- **MVP estimate**: $5-10/month
+
+**Firestore**:
+- Free tier: 1GB storage, 50K reads, 20K writes/day
+- **MVP estimate**: Free tier sufficient
+
+**Gemini API**:
+- ~$0.00002/request for preference extraction
+- ~$0.00001/1K chars for embeddings
+- **MVP estimate**: $2-5/month
+
+**Total MVP**: $7-15/month (mostly covered by free tiers)
 
 ## Tech Stack
 

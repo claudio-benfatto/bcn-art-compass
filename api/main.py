@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from agents.orchestrator import OrchestratorAgent
-from observability import configure_logging, log_info, set_correlation_id
+from observability import configure_logging, log_error, log_info, set_correlation_id
 
 # Global orchestrator instance
 orchestrator: Optional[OrchestratorAgent] = None
@@ -49,8 +49,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         orchestrator = OrchestratorAgent()
         log_info("orchestrator_initialized")
     except Exception as e:
-        log_info("orchestrator_initialization_failed", error=str(e), level="warning")
-        log_info("api_will_run_without_rag", level="warning")
+        log_error("orchestrator_initialization_failed", error=str(e))
+        log_error("api_will_run_without_rag")
 
     yield
 
@@ -94,22 +94,23 @@ async def readiness_check() -> dict:
     Readiness probe endpoint.
 
     Returns 200 if the application is ready to serve traffic.
-    Checks that critical dependencies (orchestrator) are initialized.
-    Used by container orchestrators to determine if traffic should be routed.
+    In cloud deployment, orchestrator may not be initialized if vector store
+    is not available. Service can still handle basic queries via Gemini API.
     """
+    components = {}
+    
     if orchestrator is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Service not ready: orchestrator not initialized",
-        )
+        components["orchestrator"] = "not_initialized_will_use_gemini_fallback"
+        components["rag"] = "disabled"
+    else:
+        components["orchestrator"] = "initialized"
+        components["rag"] = "enabled"
 
     return {
         "status": "ready",
         "service": "bcn-art-compass-api",
         "version": "0.1.0",
-        "components": {
-            "orchestrator": "initialized",
-        },
+        "components": components,
     }
 
 
@@ -136,7 +137,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
     try:
         # Use orchestrator if available, otherwise fallback
         if orchestrator:
-            response_text = orchestrator.process_query(request.message, request.user_id)
+            response_text = await orchestrator.process_query(request.message, request.user_id)
         else:
             response_text = (
                 "The recommendation system is currently unavailable. "

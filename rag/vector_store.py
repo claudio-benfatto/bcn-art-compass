@@ -11,7 +11,6 @@ from chromadb.config import Settings
 
 from observability import log_info, log_rag_query
 from rag.embeddings import EmbeddingGenerator
-from rag.embeddings_local import LocalEmbeddingGenerator
 from rag.models import EventWithVenue, SearchResult
 
 if TYPE_CHECKING:
@@ -30,7 +29,7 @@ class VectorStore:
         self,
         collection_name: str = "events",
         persist_directory: Optional[str] = None,
-        embedding_generator: Optional[Union[EmbeddingGenerator, LocalEmbeddingGenerator]] = None,
+        embedding_generator: Optional[EmbeddingGenerator] = None,
         use_local_embeddings: Optional[bool] = None,
     ):
         """
@@ -81,8 +80,10 @@ class VectorStore:
                 else:
                     # Default: use local if no API key, otherwise use Google
                     use_local_embeddings = "GOOGLE_API_KEY" not in os.environ
-            
+
             if use_local_embeddings:
+                # Lazy import to avoid failure when sentence-transformers not installed
+                from rag.embeddings_local import LocalEmbeddingGenerator
                 log_info("using_local_embeddings", model="sentence-transformers")
                 self.embedding_generator = LocalEmbeddingGenerator()
                 embedding_type = "local"

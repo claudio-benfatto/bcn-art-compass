@@ -9,7 +9,7 @@ Supports both Google Gemini (cloud) and Ollama (local) models.
 import os
 from typing import Optional
 
-import google.generativeai as genai
+from google import genai
 
 from memory.models import UserProfile
 from memory.storage import MemoryStorage
@@ -36,8 +36,8 @@ class ProfileAgent:
     def __init__(
         self,
         storage: Optional[MemoryStorage] = None,
-        model_name: str = "gemini-1.5-flash",
-        use_local_llm: Optional[bool] = None,
+        model_name: str = "gemini-2.5-flash",
+        use_local_llm: Optional[bool] = None,  # Auto-detect based on GOOGLE_API_KEY
         local_model: str = "llama3.2",
     ):
         """
@@ -79,9 +79,22 @@ class ProfileAgent:
                 self.llm_type = "ollama"
                 log_info("profile_agent_initialized", model=local_model, llm_type="local (ollama)")
         else:
-            self.model = genai.GenerativeModel(model_name)
-            self.llm_type = "gemini"
-            log_info("profile_agent_initialized", model=model_name, llm_type="cloud (gemini)")
+            # Configure Gemini API key
+            api_key = os.getenv("GOOGLE_API_KEY")
+            if not api_key:
+                log_info(
+                    "google_api_key_missing",
+                    level="warning",
+                    message="GOOGLE_API_KEY not set, falling back to rule-based extraction"
+                )
+                self.model = None
+                self.llm_type = "rule-based"
+            else:
+                # Use the new google-genai SDK (stable v1 API)
+                self.client = genai.Client(api_key=api_key)
+                self.model = model_name
+                self.llm_type = "gemini"
+                log_info("profile_agent_initialized", model=model_name, llm_type="cloud (gemini)")
 
     def load_profile(self, user_id: str) -> UserProfile:
         """
@@ -374,9 +387,7 @@ Now analyze the user statement and return only the JSON object:"""
             return self._extract_with_rules(text)
 
     async def _extract_with_gemini(self, text: str) -> dict:
-        """Extract preferences using Google Gemini."""
-    async def _extract_with_gemini(self, text: str) -> dict:
-        """Extract preferences using Google Gemini."""
+        """Extract preferences using Google Gemini with the new google-genai SDK."""
         prompt = f"""You are a preference extraction assistant for a cultural events recommender system.
 
 Analyze the following user statement and extract any preferences about:
@@ -406,8 +417,11 @@ Output: {{"favorite_genres": ["contemporary sculpture"], "disliked_genres": [],
 Now analyze the user statement and return only the JSON object:"""
 
         try:
-            # Call Gemini
-            response = self.model.generate_content(prompt)
+            # Call Gemini using the new SDK
+            response = self.client.models.generate_content(
+                model=self.model,
+                contents=prompt
+            )
             result_text = response.text.strip()
 
             # Clean up response (remove markdown code blocks if present)

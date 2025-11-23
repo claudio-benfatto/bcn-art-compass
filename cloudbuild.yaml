@@ -6,7 +6,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
-      - '--tag=gcr.io/$PROJECT_ID/bcn-art-compass:$SHORT_SHA'
+      - '--tag=gcr.io/$PROJECT_ID/bcn-art-compass:$_IMAGE_TAG'
       - '--tag=gcr.io/$PROJECT_ID/bcn-art-compass:latest'
       - '--cache-from=gcr.io/$PROJECT_ID/bcn-art-compass:latest'
       - '.'
@@ -16,7 +16,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'gcr.io/$PROJECT_ID/bcn-art-compass:$SHORT_SHA'
+      - 'gcr.io/$PROJECT_ID/bcn-art-compass:$_IMAGE_TAG'
     id: 'push-image'
     waitFor: ['build-image']
 
@@ -27,7 +27,7 @@ steps:
       - 'run'
       - 'deploy'
       - 'bcn-art-compass'
-      - '--image=gcr.io/$PROJECT_ID/bcn-art-compass:$SHORT_SHA'
+      - '--image=gcr.io/$PROJECT_ID/bcn-art-compass:$_IMAGE_TAG'
       - '--region=$_DEPLOY_REGION'
       - '--platform=managed'
       - '--allow-unauthenticated'
@@ -48,7 +48,7 @@ steps:
 
 # Store images in Google Container Registry
 images:
-  - 'gcr.io/$PROJECT_ID/bcn-art-compass:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/bcn-art-compass:$_IMAGE_TAG'
   - 'gcr.io/$PROJECT_ID/bcn-art-compass:latest'
 
 # Build options - cost-optimized
@@ -58,7 +58,8 @@ options:
 
 # Substitutions (can be overridden at runtime)
 substitutions:
-  _DEPLOY_REGION: 'us-central1'
+  _DEPLOY_REGION: 'europe-southwest1'  # Madrid region for Spain
+  _IMAGE_TAG: 'latest'   # Default to 'latest' for manual builds
 
-# Timeout for entire build (10 minutes, reduced from 15)
-timeout: 600s
+# Timeout for entire build (15 minutes for initial build with downloads)
+timeout: 900s
