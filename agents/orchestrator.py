@@ -55,7 +55,7 @@ class OrchestratorAgent(A2AAgent):
     """
     Orchestrator for multi-agent workflow coordination.
 
-    Responsibilities (Milestone 4):
+    Responsibilities:
     - Detect user intent (preference_update, recommendation, general)
     - Load and update user profiles via ProfileAgent
     - Delegate recommendations to RecommenderAgent
@@ -69,7 +69,6 @@ class OrchestratorAgent(A2AAgent):
         self,
         recommender_agent: Optional[RecommenderAgent] = None,
         profile_agent: Optional[ProfileAgent] = None,
-        use_local_embeddings: Optional[bool] = None,
     ):
         """
         Initialize the orchestrator.
@@ -77,7 +76,6 @@ class OrchestratorAgent(A2AAgent):
         Args:
             recommender_agent: RecommenderAgent instance. If None, creates a new one
             profile_agent: ProfileAgent instance. If None, creates a new one
-            use_local_embeddings: Deprecated, use config.py instead
         """
         # Initialize A2A protocol base
         super().__init__(agent_id="orchestrator_agent", name="OrchestratorAgent")

@@ -46,7 +46,6 @@ def orchestrator(recommender_agent, profile_agent):
     return OrchestratorAgent(
         recommender_agent=recommender_agent,
         profile_agent=profile_agent,
-        use_local_embeddings=True,
     )
 
 
