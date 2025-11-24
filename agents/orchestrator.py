@@ -1,5 +1,4 @@
-"""
-Orchestrator Agent - Multi-agent workflow coordinator.
+"""Orchestrator Agent - Multi-agent workflow coordinator.
 
 Routes user queries to appropriate agents:
 - ProfileAgent: User preferences and memory
@@ -8,26 +7,31 @@ Routes user queries to appropriate agents:
 A2A-compliant for future agent-to-agent communication.
 """
 
+import sys
 from typing import TYPE_CHECKING, Optional
 
 from agents.a2a_protocol import A2AAgent, A2AMessage, AgentCapability, MessageType
 from agents.profile_agent import ProfileAgent
 from agents.recommender_agent import RecommenderAgent
-from observability import log_agent_routing, log_info
+from observability import log_agent_routing, log_error, log_info
 
 if TYPE_CHECKING:
     from memory.models import UserProfile
 
 
 def _create_vector_store():
-    """Create the appropriate vector store based on config."""
+    """Create the appropriate vector store based on config.
+
+    Raises:
+        SystemExit: If vector store creation fails.
+    """
     try:
         import config
         log_info("config_imported_successfully")
-        
+
         should_use_vertex = config.should_use_vertex_rag()
         log_info("config_check_complete", use_vertex=should_use_vertex)
-        
+
         if should_use_vertex:
             # Use Vertex AI Vector Search
             from rag.vector_store_vertex import VertexVectorStore
@@ -41,15 +45,12 @@ def _create_vector_store():
             log_info("creating_chroma_vector_store")
             return VectorStore()
     except Exception as e:
-        log_info("vector_store_creation_failed", error=str(e), error_type=type(e).__name__)
-        import traceback
-        traceback.print_exc()
-        # Fallback to ChromaDB
-        from rag.vector_store import VectorStore
-        log_info("falling_back_to_chroma")
-        return VectorStore()
-
-
+        log_error(
+            "vector_store_creation_failed",
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        sys.exit(1)
 class OrchestratorAgent(A2AAgent):
     """
     Orchestrator for multi-agent workflow coordination.
