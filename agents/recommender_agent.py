@@ -8,10 +8,12 @@ This agent is responsible for:
 - Formatting recommendations for users
 
 Part of Milestone 4: Clean Multi-Agent Workflow
+A2A-compliant for future agent-to-agent communication.
 """
 
 from typing import TYPE_CHECKING, List, Optional, Union
 
+from agents.a2a_protocol import A2AAgent, A2AMessage, AgentCapability, MessageType
 from observability import log_info
 from rag.models import EventWithVenue, SearchResult
 from rag.vector_store import VectorStore
@@ -21,7 +23,7 @@ if TYPE_CHECKING:
     from memory.models import UserProfile
 
 
-class RecommenderAgent:
+class RecommenderAgent(A2AAgent):
     """
     Agent specialized in generating personalized event recommendations.
 
@@ -37,6 +39,21 @@ class RecommenderAgent:
         Args:
             vector_store: VectorStore instance for RAG queries. If None, creates a new one
         """
+        # Initialize A2A protocol base
+        super().__init__(agent_id="recommender_agent", name="RecommenderAgent")
+
+        # Register capabilities
+        self.register_capability(AgentCapability(
+            name="recommend",
+            description="Generate personalized event recommendations",
+            input_schema={
+                "query": "string",
+                "profile": "UserProfile (optional)",
+                "k": "integer (optional)",
+            },
+            output_schema={"recommendations": "list[EventWithVenue]"},
+        ))
+
         self.vector_store = vector_store or VectorStore()
         self.geocoder = geocoder_tool
         log_info("recommender_agent_initialized")
@@ -265,3 +282,63 @@ class RecommenderAgent:
 ❤️ **Tell me your preferences**: Say "I like contemporary art" to help me learn
 
 Would you like me to search for something else?"""
+
+    def process(self, message: A2AMessage) -> A2AMessage:
+        """
+        Process A2A protocol message.
+
+        Args:
+            message: Input A2A message
+
+        Returns:
+            Response A2A message
+        """
+        if message.message_type != MessageType.REQUEST:
+            return A2AMessage(
+                sender=self.agent_id,
+                recipient=message.sender,
+                message_type=MessageType.ERROR,
+                content={"error": "Only REQUEST messages supported"},
+                correlation_id=message.correlation_id,
+            )
+
+        action = message.content.get("action")
+
+        if action == "recommend":
+            query = message.content.get("query")
+            profile = message.content.get("profile")  # Could be dict or UserProfile
+            k = message.content.get("k", 5)
+
+            # Convert profile dict to UserProfile if needed
+            if profile and isinstance(profile, dict):
+                from memory.models import UserProfile
+                profile = UserProfile(**profile)
+
+            results = self.recommend(query=query, profile=profile, k=k)
+
+            # Serialize results
+            serialized_results = [
+                {
+                    "title": r.title if hasattr(r, "title") else r.event.title,
+                    "description": r.description if hasattr(r, "description") else r.event.description,
+                    "venue_name": r.venue_name if hasattr(r, "venue_name") else r.venue.name,
+                }
+                for r in results
+            ]
+
+            return A2AMessage(
+                sender=self.agent_id,
+                recipient=message.sender,
+                message_type=MessageType.RESPONSE,
+                content={"recommendations": serialized_results},
+                correlation_id=message.correlation_id,
+            )
+
+        else:
+            return A2AMessage(
+                sender=self.agent_id,
+                recipient=message.sender,
+                message_type=MessageType.ERROR,
+                content={"error": f"Unknown action: {action}"},
+                correlation_id=message.correlation_id,
+            )

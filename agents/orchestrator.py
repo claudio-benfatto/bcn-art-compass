@@ -5,13 +5,12 @@ Routes user queries to appropriate agents:
 - ProfileAgent: User preferences and memory
 - RecommenderAgent: Event recommendations with RAG
 
-Milestone 2: Added ProfileAgent integration
-Milestone 3: Added preference extraction with intent detection
-Milestone 4: Added RecommenderAgent and conversation context
+A2A-compliant for future agent-to-agent communication.
 """
 
 from typing import TYPE_CHECKING, Optional
 
+from agents.a2a_protocol import A2AAgent, A2AMessage, AgentCapability, MessageType
 from agents.profile_agent import ProfileAgent
 from agents.recommender_agent import RecommenderAgent
 from observability import log_agent_routing, log_info
@@ -51,7 +50,7 @@ def _create_vector_store():
         return VectorStore()
 
 
-class OrchestratorAgent:
+class OrchestratorAgent(A2AAgent):
     """
     Orchestrator for multi-agent workflow coordination.
 
@@ -61,6 +60,8 @@ class OrchestratorAgent:
     - Delegate recommendations to RecommenderAgent
     - Track conversation context for multi-turn interactions
     - Route queries to appropriate agents
+
+    A2A-compliant for future multi-agent coordination.
     """
 
     def __init__(
@@ -77,15 +78,24 @@ class OrchestratorAgent:
             profile_agent: ProfileAgent instance. If None, creates a new one
             use_local_embeddings: Deprecated, use config.py instead
         """
+        # Initialize A2A protocol base
+        super().__init__(agent_id="orchestrator_agent", name="OrchestratorAgent")
+
+        # Register capabilities
+        self.register_capability(AgentCapability(
+            name="process_query",
+            description="Route user query to appropriate agents and return response",
+            input_schema={"user_id": "string", "query": "string"},
+            output_schema={"response": "string"},
+        ))
+
         # Create vector store based on config
         vector_store = _create_vector_store()
-        
+
         self.recommender_agent = recommender_agent or RecommenderAgent(
             vector_store=vector_store
         )
-        self.profile_agent = profile_agent or ProfileAgent()
-
-        # Conversation context (Milestone 4)
+        self.profile_agent = profile_agent or ProfileAgent()        # Conversation context (Milestone 4)
         self.conversation_history: dict = {}  # user_id -> list of (query, response) tuples
 
         # Keywords that trigger RAG search
@@ -301,3 +311,49 @@ class OrchestratorAgent:
             "- Search for free events\n\n"
             "What would you like to explore?"
         )
+
+    def process(self, message: A2AMessage) -> A2AMessage:
+        """
+        Process A2A protocol message.
+
+        Currently delegates to process_query for compatibility.
+        Future: Full A2A routing between agents.
+
+        Args:
+            message: Input A2A message
+
+        Returns:
+            Response A2AMessage
+        """
+        if message.message_type != MessageType.REQUEST:
+            return A2AMessage(
+                sender=self.agent_id,
+                recipient=message.sender,
+                message_type=MessageType.ERROR,
+                content={"error": "Only REQUEST messages supported"},
+                correlation_id=message.correlation_id,
+            )
+
+        action = message.content.get("action")
+
+        if action == "process_query":
+            user_id = message.content.get("user_id")
+            query = message.content.get("query")
+            response = self.process_query(user_id, query)
+
+            return A2AMessage(
+                sender=self.agent_id,
+                recipient=message.sender,
+                message_type=MessageType.RESPONSE,
+                content={"response": response},
+                correlation_id=message.correlation_id,
+            )
+
+        else:
+            return A2AMessage(
+                sender=self.agent_id,
+                recipient=message.sender,
+                message_type=MessageType.ERROR,
+                content={"error": f"Unknown action: {action}"},
+                correlation_id=message.correlation_id,
+            )

@@ -4,6 +4,8 @@ Profile Agent - manages user preferences and long-term memory.
 This agent handles loading and updating user profiles.
 In Milestone 3, extracts preferences from natural language using LLM.
 Supports both Google Gemini (cloud) and Ollama (local) models.
+
+A2A-compliant for future agent-to-agent communication.
 """
 
 import os
@@ -11,6 +13,7 @@ from typing import Optional
 
 from google import genai
 
+from agents.a2a_protocol import A2AAgent, A2AMessage, AgentCapability, MessageType
 from memory.models import UserProfile
 from memory.storage import MemoryStorage
 from observability import log_info
@@ -22,7 +25,7 @@ except ImportError:
     OLLAMA_AVAILABLE = False
 
 
-class ProfileAgent:
+class ProfileAgent(A2AAgent):
     """
     Profile agent with NLP-based preference extraction.
 
@@ -49,6 +52,23 @@ class ProfileAgent:
             use_local_llm: Force use of local LLM. If None, auto-detect based on GOOGLE_API_KEY
             local_model: Ollama model to use (default: llama3.2)
         """
+        # Initialize A2A protocol base
+        super().__init__(agent_id="profile_agent", name="ProfileAgent")
+
+        # Register capabilities
+        self.register_capability(AgentCapability(
+            name="load_profile",
+            description="Load user profile from storage",
+            input_schema={"user_id": "string"},
+            output_schema={"profile": "UserProfile"},
+        ))
+        self.register_capability(AgentCapability(
+            name="extract_preferences",
+            description="Extract user preferences from natural language",
+            input_schema={"user_id": "string", "text": "string"},
+            output_schema={"profile": "UserProfile"},
+        ))
+
         self.storage = storage or MemoryStorage()
         
         # Determine which LLM to use
@@ -446,3 +466,56 @@ Now analyze the user statement and return only the JSON object:"""
             )
             # Fallback to rule-based
             return self._extract_with_rules(text)
+
+    def process(self, message: A2AMessage) -> A2AMessage:
+        """
+        Process A2A protocol message.
+
+        Args:
+            message: Input A2A message
+
+        Returns:
+            Response A2A message
+        """
+        if message.message_type != MessageType.REQUEST:
+            return A2AMessage(
+                sender=self.agent_id,
+                recipient=message.sender,
+                message_type=MessageType.ERROR,
+                content={"error": "Only REQUEST messages supported"},
+                correlation_id=message.correlation_id,
+            )
+
+        action = message.content.get("action")
+
+        if action == "load_profile":
+            user_id = message.content.get("user_id")
+            profile = self.load_profile(user_id)
+            return A2AMessage(
+                sender=self.agent_id,
+                recipient=message.sender,
+                message_type=MessageType.RESPONSE,
+                content={"profile": profile.model_dump() if profile else None},
+                correlation_id=message.correlation_id,
+            )
+
+        elif action == "extract_preferences":
+            user_id = message.content.get("user_id")
+            text = message.content.get("text")
+            profile = self.extract_and_update(user_id, text)
+            return A2AMessage(
+                sender=self.agent_id,
+                recipient=message.sender,
+                message_type=MessageType.RESPONSE,
+                content={"profile": profile.model_dump() if profile else None},
+                correlation_id=message.correlation_id,
+            )
+
+        else:
+            return A2AMessage(
+                sender=self.agent_id,
+                recipient=message.sender,
+                message_type=MessageType.ERROR,
+                content={"error": f"Unknown action: {action}"},
+                correlation_id=message.correlation_id,
+            )
