@@ -17,3 +17,4 @@ def pytest_configure(config):
     """Configure pytest with custom markers."""
     config.addinivalue_line("markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')")
     config.addinivalue_line("markers", "embedding: marks tests that require API key")
+    config.addinivalue_line("markers", "smoke: marks tests as smoke tests (integration tests for deployed service)")

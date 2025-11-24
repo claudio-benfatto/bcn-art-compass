@@ -273,6 +273,15 @@ uv run pytest -v
 
 # Run tests including optional embedding tests (requires GOOGLE_API_KEY)
 uv run pytest -v --run-embedding-tests
+
+# Run only smoke tests (integration tests for deployed service)
+uv run pytest -m smoke
+
+# Run smoke tests with service URL
+SERVICE_URL=https://your-service-url.run.app uv run pytest -m smoke
+
+# Exclude smoke tests from regular test run
+uv run pytest -m "not smoke"
 ```
 
 ### Running the Application
@@ -397,16 +406,26 @@ bcn-art-compass/
 │   ├── vector_store.py # ChromaDB with profile-aware scoring
 │   ├── vector_store_vertex.py # Vertex AI Vector Search (M6)
 │   └── data_loader.py  # YAML data loading
-├── scripts/            # Utility scripts
-│   ├── init_vector_store.py  # Initialize ChromaDB
-│   ├── demo_preferences.py   # Demo preference extraction
-│   ├── deploy.sh       # Cloud Run deployment (M6)
-│   ├── smoke_test.py   # Cloud endpoint testing (M6)
-│   └── test_docker.sh  # Docker integration test runner (M5)
-├── storage/            # Local data storage (generated)
+├── scripts/            # Utility and deployment scripts
+│   ├── deployment/    # Cloud Run deployment scripts
+│   │   ├── deploy.sh           # Deploy to Cloud Run
+│   │   ├── deploy_with_vertex.sh  # Deploy with Vertex AI
+│   │   └── test_docker.sh      # Docker build validation
+│   ├── data/          # Data and index management
+│   │   ├── build_chromadb_index.py   # Build local ChromaDB
+│   │   ├── prepare_vertex_data.py    # Prepare Vertex embeddings
+│   │   └── init_vector_store.py      # Initialize vector stores
+│   └── vertex/        # Vertex AI management
+│       ├── setup_vertex_ai.sh        # Setup Vertex AI
+│       ├── update_vertex_index.sh    # Update index
+│       ├── check_vertex_status.sh    # Check status
+│       └── cli_vertex.sh             # Vertex CLI commands
+├── storage/            # Local data storage (generated, gitignored)
 │   ├── chromadb/       # ChromaDB persistence
-│   └── profiles.json   # User profiles
+│   └── .gitkeep        # Keep directory structure
 ├── tests/              # Test suite (52 tests)
+│   ├── integration/    # Integration tests
+│   │   └── test_smoke.py  # Smoke tests for deployed service (M6)
 │   ├── test_api.py    # API integration tests
 │   ├── test_memory.py  # Memory storage tests
 │   ├── test_firestore_storage.py  # Firestore tests (M6)
