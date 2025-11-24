@@ -19,7 +19,7 @@ class AppConfig:
     
     # Environment detection
     is_cloud: bool
-    environment: str  # "local", "cloud_run", "vertex_ai"
+    environment: str  # "local", "cloud_run"
     
     # Storage backends
     use_firestore: bool
@@ -48,7 +48,6 @@ class AppConfig:
         
         Auto-detects:
         - Cloud Run (K_SERVICE environment variable)
-        - Vertex AI (VERTEX_AI_ENVIRONMENT variable)
         - Local development (default)
         
         Returns:
@@ -56,15 +55,9 @@ class AppConfig:
         """
         # Detect environment
         is_cloud_run = os.getenv("K_SERVICE") is not None
-        is_vertex = os.getenv("VERTEX_AI_ENVIRONMENT") is not None
-        is_cloud = is_cloud_run or is_vertex
+        is_cloud = is_cloud_run
         
-        if is_cloud_run:
-            environment = "cloud_run"
-        elif is_vertex:
-            environment = "vertex_ai"
-        else:
-            environment = "local"
+        environment = "cloud_run" if is_cloud_run else "local"
         
         # Storage backends
         # Use cloud storage in cloud environments unless explicitly disabled
@@ -73,7 +66,7 @@ class AppConfig:
         
         # GCP settings
         project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-        location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+        location = os.getenv("GOOGLE_CLOUD_LOCATION", "europe-southwest1")
         
         # RAG settings
         vector_store_path = os.getenv("VECTOR_STORE_PATH", "storage/chroma_db")
@@ -118,7 +111,7 @@ class AppConfig:
             },
             "llm": {
                 "backend": "gemini" if not self.use_local_llm else "local",
-                "model": self.local_model if self.use_local_llm else "gemini-1.5-flash",
+                "model": self.local_model if self.use_local_llm else "gemini-2.5-flash",
             },
             "gcp": {
                 "project": self.project_id,
