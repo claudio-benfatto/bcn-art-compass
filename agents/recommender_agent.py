@@ -10,10 +10,10 @@ This agent is responsible for:
 Part of Milestone 4: Clean Multi-Agent Workflow
 """
 
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Optional, Union
 
 from observability import log_info
-from rag.models import EventWithVenue
+from rag.models import EventWithVenue, SearchResult
 from rag.vector_store import VectorStore
 from tools.geocoder import geocoder_tool
 
@@ -47,7 +47,7 @@ class RecommenderAgent:
         profile: Optional["UserProfile"] = None,
         k: int = 5,
         filters: Optional[dict] = None,
-    ) -> List[EventWithVenue]:
+    ) -> List[Union[EventWithVenue, SearchResult]]:
         """
         Generate personalized event recommendations.
 
@@ -58,7 +58,7 @@ class RecommenderAgent:
             filters: Additional filters (e.g., date range, location)
 
         Returns:
-            List of EventWithVenue objects, ranked by relevance and preferences
+            List of EventWithVenue or SearchResult objects, ranked by relevance and preferences
 
         Example:
             >>> agent = RecommenderAgent()
@@ -93,9 +93,9 @@ class RecommenderAgent:
 
     def _apply_advanced_ranking(
         self,
-        results: List[EventWithVenue],
+        results: List[Union[EventWithVenue, SearchResult]],
         profile: "UserProfile",
-    ) -> List[EventWithVenue]:
+    ) -> List[Union[EventWithVenue, SearchResult]]:
         """
         Apply advanced ranking logic beyond basic scoring.
 
@@ -123,9 +123,9 @@ class RecommenderAgent:
 
     def _apply_location_scoring(
         self,
-        results: List[EventWithVenue],
+        results: List[Union[EventWithVenue, SearchResult]],
         user_location: str,
-    ) -> List[EventWithVenue]:
+    ) -> List[Union[EventWithVenue, SearchResult]]:
         """
         Apply distance-based scoring to prioritize nearby events.
 
@@ -150,9 +150,33 @@ class RecommenderAgent:
         )
 
         for event in results:
+            # Get event coordinates - handle both EventWithVenue and SearchResult
+            if isinstance(event, EventWithVenue):
+                event_lat, event_lon = event.venue.latitude, event.venue.longitude
+            else:  # SearchResult
+                event_lat = event.venue_latitude
+                event_lon = event.venue_longitude
+
+            # Skip if coordinates missing
+            if event_lat is None or event_lon is None:
+                # Get event title for logging
+                if hasattr(event, "title"):
+                    event_title = event.title[:50]
+                elif hasattr(event, "event"):
+                    event_title = event.event.title[:50]
+                else:
+                    event_title = "unknown"
+
+                log_info(
+                    "location_scoring_skipped_for_event",
+                    event_title=event_title,
+                    reason="missing_coordinates"
+                )
+                continue
+
             # Calculate distance
             distance_km = self.geocoder.calculate_distance(
-                user_lat, user_lon, event.latitude, event.longitude
+                user_lat, user_lon, event_lat, event_lon
             )
 
             # Apply proximity boost
@@ -173,9 +197,18 @@ class RecommenderAgent:
             if hasattr(event, "score"):
                 old_score = event.score
                 event.score += proximity_boost
+
+                # Get event title for logging
+                if hasattr(event, "title"):
+                    event_title = event.title[:50]
+                elif hasattr(event, "event"):
+                    event_title = event.event.title[:50]
+                else:
+                    event_title = "unknown"
+
                 log_info(
                     "proximity_boost_applied",
-                    event=event.title[:50],
+                    event_title=event_title,
                     distance_km=round(distance_km, 2),
                     boost=proximity_boost,
                     old_score=round(old_score, 3),
@@ -186,14 +219,14 @@ class RecommenderAgent:
 
     def format_recommendations(
         self,
-        results: List[EventWithVenue],
+        results: List[Union[EventWithVenue, SearchResult]],
         include_reasoning: bool = False,
     ) -> str:
         """
         Format recommendations into user-friendly text.
 
         Args:
-            results: List of EventWithVenue objects
+            results: List of EventWithVenue or SearchResult objects
             include_reasoning: Whether to include why each event was recommended
 
         Returns:

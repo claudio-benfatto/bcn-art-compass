@@ -90,3 +90,5 @@ class SearchResult(BaseModel):
     cost_range: str
     score: float = Field(description="Similarity score from vector search")
     url: str
+    venue_latitude: float | None = Field(None, description="Venue latitude for location-based scoring")
+    venue_longitude: float | None = Field(None, description="Venue longitude for location-based scoring")

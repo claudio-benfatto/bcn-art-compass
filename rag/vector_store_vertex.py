@@ -3,6 +3,8 @@ Vertex AI Vector Search wrapper for cloud deployment.
 
 This module provides a VectorStore implementation using Google Cloud's
 Vertex AI Vector Search (Matching Engine).
+
+Updated: 2025-01-19 - Fixed venue coordinate access (venue.latitude/venue.longitude)
 """
 
 import os
@@ -145,6 +147,8 @@ class VertexVectorStore:
                             cost_range=ewv.event.cost_range,
                             score=1.0 - distance,  # Convert distance to similarity
                             url=ewv.event.url,
+                            venue_latitude=ewv.venue.latitude,
+                            venue_longitude=ewv.venue.longitude,
                         )
                         results.append(search_result)
                         print(f"[VERTEX] Added event: {ewv.event.title}")
