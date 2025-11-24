@@ -11,13 +11,14 @@ from typing import Optional
 from google.cloud import firestore
 
 from memory.models import UserProfile
+from memory.storage_interface import ProfileStorage
 from observability import log_info
 
 
-class FirestoreStorage:
+class FirestoreStorage(ProfileStorage):
     """
     Firestore-based profile storage.
-    
+
     Identical API to MemoryStorage but persists to Firestore.
     Auto-creates collection and manages documents.
     """
@@ -100,16 +101,26 @@ class FirestoreStorage:
             },
         )
 
-    def delete_profile(self, user_id: str) -> None:
+    def delete_profile(self, user_id: str) -> bool:
         """
         Delete user profile from Firestore.
 
         Args:
             user_id: User identifier
+
+        Returns:
+            bool: True if profile was deleted, False if it didn't exist
         """
         doc_ref = self.collection.document(user_id)
-        doc_ref.delete()
-        log_info("profile_deleted", user_id=user_id, source="firestore")
+        doc = doc_ref.get()
+        
+        if doc.exists:
+            doc_ref.delete()
+            log_info("profile_deleted", user_id=user_id, source="firestore")
+            return True
+        else:
+            log_info("profile_not_found", user_id=user_id, source="firestore")
+            return False
 
     def list_profiles(self) -> list[str]:
         """
@@ -122,3 +133,17 @@ class FirestoreStorage:
         user_ids = [doc.id for doc in docs]
         log_info("profiles_listed", count=len(user_ids), source="firestore")
         return user_ids
+
+    def profile_exists(self, user_id: str) -> bool:
+        """
+        Check if profile exists in Firestore.
+
+        Args:
+            user_id: User identifier
+
+        Returns:
+            bool: True if profile exists
+        """
+        doc_ref = self.collection.document(user_id)
+        doc = doc_ref.get()
+        return doc.exists

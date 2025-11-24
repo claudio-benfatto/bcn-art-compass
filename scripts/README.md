@@ -4,8 +4,27 @@ Utility scripts for BCN Art Compass deployment, data processing, and Vertex AI m
 
 ## Directory Structure
 
+### Deployment Scripts (Root)
+
+**New simplified deployment** - recommended for MVP:
+
+- **`setup-api-key-secret.sh`** - Store Google API key in Secret Manager (one-time setup)
+- **`deploy-to-cloud-run.sh`** - Automated Cloud Run deployment with secrets
+
+Usage:
+```bash
+# First-time setup
+./scripts/setup-api-key-secret.sh
+./scripts/deploy-to-cloud-run.sh
+
+# Subsequent deployments
+./scripts/deploy-to-cloud-run.sh
+```
+
+See [docs/cloud-run-deployment.md](../docs/cloud-run-deployment.md) for detailed guide.
+
 ### `deployment/`
-Scripts for deploying the application to Cloud Run.
+Legacy deployment scripts (still available).
 
 - **`deploy.sh`** - Basic Cloud Run deployment
 - **`deploy_with_vertex.sh`** - Cloud Run deployment with Vertex AI configuration

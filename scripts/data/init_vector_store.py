@@ -2,17 +2,11 @@
 Script to initialize the RAG vector store with events data.
 
 Run this script to load events and venues into ChromaDB before starting the API.
+Uses local sentence-transformer embeddings (no API key required).
 
 Usage:
-    # Use free local embeddings (default, no API key needed):
-    uv run scripts/init_vector_store.py
-
-    # Use Google API embeddings (requires GOOGLE_API_KEY):
-    export GOOGLE_API_KEY=your_key
     uv run scripts/init_vector_store.py
 """
-
-import os
 
 from observability import configure_logging, log_info
 from rag.data_loader import load_events_with_venues
@@ -23,20 +17,7 @@ def initialize_vector_store():
     """Initialize the vector store with events data."""
     configure_logging()
     
-    # Determine which embeddings to use
-    # Priority: USE_LOCAL_EMBEDDINGS flag > presence of GOOGLE_API_KEY
-    env_flag = os.getenv("USE_LOCAL_EMBEDDINGS", "").lower()
-    if env_flag in ("true", "1", "yes"):
-        use_local = True
-        embedding_type = "local (forced by flag)"
-    elif env_flag in ("false", "0", "no"):
-        use_local = False
-        embedding_type = "Google API (forced by flag)"
-    else:
-        use_local = "GOOGLE_API_KEY" not in os.environ
-        embedding_type = "local (no API key)" if use_local else "Google API (auto-detected)"
-    
-    log_info("initializing_vector_store", embedding_type=embedding_type)
+    log_info("initializing_vector_store", embedding_type="local")
 
     try:
         # Load data
@@ -44,9 +25,9 @@ def initialize_vector_store():
         events_with_venues = load_events_with_venues()
         log_info("loaded_data", count=len(events_with_venues))
 
-        # Initialize vector store with appropriate embedding generator
+        # Initialize vector store with local embeddings
         log_info("creating_vector_store")
-        vector_store = VectorStore(use_local_embeddings=use_local)
+        vector_store = VectorStore()
 
         # Clear existing data (optional - comment out if you want to keep existing data)
         if vector_store.count() > 0:
@@ -61,12 +42,7 @@ def initialize_vector_store():
         log_info("vector_store_initialized", document_count=final_count)
 
         print(f"\n✅ Vector store initialized successfully with {final_count} events")
-        if use_local:
-            print("💡 Using free local embeddings (sentence-transformers)")
-            print("   To force Google API: USE_LOCAL_EMBEDDINGS=false or set GOOGLE_API_KEY")
-        else:
-            print("💡 Using Google API embeddings (text-embedding-004)")
-            print("   To force local embeddings: USE_LOCAL_EMBEDDINGS=true")
+        print("💡 Using local embeddings (sentence-transformers)")
         print()
         return True
 

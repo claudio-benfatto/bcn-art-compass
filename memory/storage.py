@@ -10,10 +10,11 @@ from pathlib import Path
 from typing import Optional
 
 from memory.models import UserProfile
+from memory.storage_interface import ProfileStorage
 from observability import log_info, log_memory_update
 
 
-class MemoryStorage:
+class MemoryStorage(ProfileStorage):
     """
     JSON-based storage for user profiles.
 

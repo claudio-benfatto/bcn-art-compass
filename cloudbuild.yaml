@@ -43,6 +43,7 @@ steps:
       - '--set-env-vars=USE_FIRESTORE=true'
       - '--set-env-vars=USE_VERTEX_RAG=false'
       - '--set-env-vars=USE_LOCAL_LLM=false'
+      - '--update-secrets=GOOGLE_API_KEY=google-api-key:latest'
     id: 'deploy-cloud-run'
     waitFor: ['push-image']
 

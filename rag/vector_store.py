@@ -1,16 +1,18 @@
 """
 ChromaDB vector store wrapper for event and venue search.
+
+Uses local ChromaDB with local sentence-transformer embeddings.
 """
 
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Optional
 
 import chromadb
 from chromadb.config import Settings
 
 from observability import log_info, log_rag_query
-from rag.embeddings import EmbeddingGenerator
+from rag.embeddings_local import LocalEmbeddingGenerator
 from rag.models import EventWithVenue, SearchResult
 
 if TYPE_CHECKING:
@@ -21,16 +23,15 @@ class VectorStore:
     """
     ChromaDB-based vector store for events and venues.
 
-    Handles document indexing and semantic search with embeddings.
-    Supports both Google API embeddings and free local embeddings.
+    Handles document indexing and semantic search with local embeddings.
+    Designed for local development with no cloud dependencies.
     """
 
     def __init__(
         self,
         collection_name: str = "events",
         persist_directory: Optional[str] = None,
-        embedding_generator: Optional[EmbeddingGenerator] = None,
-        use_local_embeddings: Optional[bool] = None,
+        embedding_generator: Optional[LocalEmbeddingGenerator] = None,
     ):
         """
         Initialize the vector store.
@@ -38,9 +39,7 @@ class VectorStore:
         Args:
             collection_name: Name of the ChromaDB collection
             persist_directory: Directory to persist the database. If None, uses ./storage/chroma_db
-            embedding_generator: EmbeddingGenerator instance. If None, auto-selects based on environment
-            use_local_embeddings: Explicit choice. If None, checks USE_LOCAL_EMBEDDINGS env var,
-                                 then falls back to True if no GOOGLE_API_KEY, False if key exists
+            embedding_generator: LocalEmbeddingGenerator instance. If None, creates a new one
         """
         self.collection_name = collection_name
 
@@ -64,40 +63,15 @@ class VectorStore:
             metadata={"description": "Cultural events and venues in Barcelona"},
         )
 
-        # Determine which embedding generator to use
-        if embedding_generator:
-            self.embedding_generator = embedding_generator
-            embedding_type = "custom"
-        else:
-            # Auto-detect based on environment variables and parameters
-            if use_local_embeddings is None:
-                # Check for explicit flag first
-                env_flag = os.getenv("USE_LOCAL_EMBEDDINGS", "").lower()
-                if env_flag in ("true", "1", "yes"):
-                    use_local_embeddings = True
-                elif env_flag in ("false", "0", "no"):
-                    use_local_embeddings = False
-                else:
-                    # Default: use local if no API key, otherwise use Google
-                    use_local_embeddings = "GOOGLE_API_KEY" not in os.environ
-
-            if use_local_embeddings:
-                # Lazy import to avoid failure when sentence-transformers not installed
-                from rag.embeddings_local import LocalEmbeddingGenerator
-                log_info("using_local_embeddings", model="sentence-transformers")
-                self.embedding_generator = LocalEmbeddingGenerator()
-                embedding_type = "local"
-            else:
-                log_info("using_google_embeddings", model="text-embedding-004")
-                self.embedding_generator = EmbeddingGenerator()
-                embedding_type = "google"
+        # Initialize local embedding generator
+        self.embedding_generator = embedding_generator or LocalEmbeddingGenerator()
 
         log_info(
             "vector_store_initialized",
             collection=collection_name,
             persist_directory=persist_directory,
             doc_count=self.collection.count(),
-            embedding_type=embedding_type,
+            embedding_type="local",
         )
 
     def add_documents(self, events_with_venues: list[EventWithVenue]) -> None:

@@ -14,6 +14,7 @@ from google.cloud import aiplatform
 from google.cloud.aiplatform_v1 import MatchServiceClient
 from google.cloud.aiplatform_v1.types import FindNeighborsRequest
 
+from observability import log_error, log_info, log_rag_query
 from rag.data_loader import load_events
 from rag.models import Event, EventWithVenue, SearchResult
 
@@ -63,9 +64,9 @@ class VertexVectorStore:
             
             # The SDK should automatically handle public endpoints
             self.endpoint = endpoint_client
-            print(f"[VERTEX_INIT] Initialized endpoint: {endpoint_id}")
+            log_info("vertex_endpoint_initialized", endpoint_id=endpoint_id)
         except Exception as e:
-            print(f"[VERTEX_INIT] Error initializing endpoint: {e}")
+            log_error("vertex_endpoint_init_failed", error=str(e))
             raise
 
         # Load events from data file (for metadata lookup)
@@ -79,11 +80,13 @@ class VertexVectorStore:
                 events_file=events_file, venues_file=venues_file
             )
             self.events_map = {e.event.id: e for e in events_with_venues}
-            print(f"[VERTEX_INIT] Loaded {len(self.events_map)} events from {events_file}")
+            log_info(
+                "vertex_events_loaded",
+                count=len(self.events_map),
+                events_file=events_file,
+            )
         except Exception as e:
-            print(f"[VERTEX_INIT] Warning: Could not load events from {data_dir}: {e}")
-            import traceback
-            traceback.print_exc()
+            log_error("vertex_events_load_failed", data_dir=data_dir, error=str(e))
 
     def query(
         self,
@@ -106,14 +109,22 @@ class VertexVectorStore:
         """
         try:
             # Generate query embedding using Gemini
-            print(f"[VERTEX] Generating embedding for query: {query}")
+            log_rag_query(query=query, num_results=k, filters=filters, source="vertex_ai")
             from rag.embeddings import EmbeddingGenerator
             embedder = EmbeddingGenerator()
             query_embedding = embedder.generate_embedding(query, task_type="RETRIEVAL_QUERY")
-            print(f"[VERTEX] Generated embedding with dimension: {len(query_embedding)}")
+            log_info(
+                "vertex_embedding_generated",
+                query=query,
+                dimension=len(query_embedding),
+            )
 
             # Query the endpoint
-            print(f"[VERTEX] Querying endpoint with deployed_index_id={self.deployed_index_id}, k={k}")
+            log_info(
+                "vertex_querying_endpoint",
+                deployed_index_id=self.deployed_index_id,
+                k=k,
+            )
             
             # Try using find_neighbors instead of match for better public endpoint support
             response = self.endpoint.find_neighbors(
@@ -121,16 +132,20 @@ class VertexVectorStore:
                 queries=[query_embedding],
                 num_neighbors=k,
             )
-            print(f"[VERTEX] Response type: {type(response)}, len: {len(response) if response else 0}")
+            log_info(
+                "vertex_response_received",
+                response_type=type(response).__name__,
+                response_len=len(response) if response else 0,
+            )
 
             # Parse results and populate with event data
             results = []
             if response and len(response) > 0:
-                print(f"[VERTEX] Processing {len(response[0])} matches")
+                log_info("vertex_processing_matches", match_count=len(response[0]))
                 for match in response[0]:
                     event_id = match.id
                     distance = getattr(match, 'distance', 0.0)
-                    print(f"[VERTEX] Match: id={event_id}, distance={distance}")
+                    log_info("vertex_match_found", event_id=event_id, distance=distance)
                     
                     # Look up full event data
                     if event_id in self.events_map:
@@ -151,20 +166,22 @@ class VertexVectorStore:
                             venue_longitude=ewv.venue.longitude,
                         )
                         results.append(search_result)
-                        print(f"[VERTEX] Added event: {ewv.event.title}")
+                        log_info("vertex_event_added", event_title=ewv.event.title)
                     else:
                         keys_sample = list(self.events_map.keys())[:5]
-                        print(f"[VERTEX] Warning: Event {event_id} not in map (have: {keys_sample})")
+                        log_error(
+                            "vertex_event_not_found",
+                            event_id=event_id,
+                            available_sample=keys_sample,
+                        )
             else:
-                print(f"[VERTEX] No matches returned from endpoint")
+                log_info("vertex_no_matches")
 
-            print(f"[VERTEX] Returning {len(results)} results")
+            log_info("vertex_query_complete", results_count=len(results), query=query)
             return results
 
         except Exception as e:
-            print(f"[VERTEX] Error querying Vertex AI: {e}")
-            import traceback
-            traceback.print_exc()
+            log_error("vertex_query_failed", query=query, error=str(e))
             return []
 
     def add_documents(self, events: list[Event]) -> None:

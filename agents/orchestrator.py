@@ -7,10 +7,10 @@ Routes user queries to appropriate agents:
 A2A-compliant for future agent-to-agent communication.
 """
 
-import sys
 from typing import TYPE_CHECKING, Optional
 
 from agents.a2a_protocol import A2AAgent, A2AMessage, AgentCapability, MessageType
+from agents.intent_detector import IntentDetector, create_intent_detector
 from agents.profile_agent import ProfileAgent
 from agents.recommender_agent import RecommenderAgent
 from observability import log_agent_routing, log_error, log_info
@@ -22,8 +22,10 @@ if TYPE_CHECKING:
 def _create_vector_store():
     """Create the appropriate vector store based on config.
 
-    Raises:
-        SystemExit: If vector store creation fails.
+    Returns:
+        VectorStore instance or None if creation fails.
+        Returns None in cloud environments without proper setup,
+        allowing the app to start without RAG capabilities.
     """
     try:
         import config
@@ -50,7 +52,9 @@ def _create_vector_store():
             error=str(e),
             error_type=type(e).__name__,
         )
-        sys.exit(1)
+        # Return None instead of exiting - allows app to start without RAG
+        log_info("continuing_without_vector_store", reason="initialization_failed")
+        return None
 class OrchestratorAgent(A2AAgent):
     """
     Orchestrator for multi-agent workflow coordination.
@@ -69,6 +73,7 @@ class OrchestratorAgent(A2AAgent):
         self,
         recommender_agent: Optional[RecommenderAgent] = None,
         profile_agent: Optional[ProfileAgent] = None,
+        intent_detector: Optional[IntentDetector] = None,
     ):
         """
         Initialize the orchestrator.
@@ -76,6 +81,7 @@ class OrchestratorAgent(A2AAgent):
         Args:
             recommender_agent: RecommenderAgent instance. If None, creates a new one
             profile_agent: ProfileAgent instance. If None, creates a new one
+            intent_detector: IntentDetector instance. If None, creates one based on environment
         """
         # Initialize A2A protocol base
         super().__init__(agent_id="orchestrator_agent", name="OrchestratorAgent")
@@ -94,32 +100,9 @@ class OrchestratorAgent(A2AAgent):
         self.recommender_agent = recommender_agent or RecommenderAgent(
             vector_store=vector_store
         )
-        self.profile_agent = profile_agent or ProfileAgent()        # Conversation context (Milestone 4)
+        self.profile_agent = profile_agent or ProfileAgent()
+        self.intent_detector = intent_detector or create_intent_detector()
         self.conversation_history: dict = {}  # user_id -> list of (query, response) tuples
-
-        # Keywords that trigger RAG search
-        self.recommendation_keywords = [
-            "recommend",
-            "show",
-            "find",
-            "search",
-            "looking for",
-            "interested in",
-            "want to see",
-            "what",
-            "where",
-            "exhibition",
-            "event",
-            "art",
-            "museum",
-            "gallery",
-        ]
-
-        # Keywords that indicate preference updates
-        self.preference_keywords = {
-            "like": ["like", "love", "enjoy", "prefer", "favorite", "fan of"],
-            "dislike": ["don't like", "dislike", "hate", "not interested in", "not a fan"],
-        }
 
         log_info(
             "orchestrator_initialized",
@@ -128,45 +111,7 @@ class OrchestratorAgent(A2AAgent):
             conversation_context=True,
         )
 
-    def _should_use_rag(self, query: str) -> bool:
-        """
-        Determine if query should trigger RAG search.
 
-        Args:
-            query: User query text
-
-        Returns:
-            True if query should use RAG, False otherwise
-        """
-        query_lower = query.lower()
-        return any(keyword in query_lower for keyword in self.recommendation_keywords)
-
-    def _detect_intent(self, query: str) -> str:
-        """
-        Detect user intent from query.
-
-        Args:
-            query: User query text
-
-        Returns:
-            Intent type: 'preference_update', 'recommendation', or 'general'
-        """
-        query_lower = query.lower()
-
-        # Check for preference expressions
-        for keyword in self.preference_keywords["like"]:
-            if keyword in query_lower:
-                return "preference_update"
-        for keyword in self.preference_keywords["dislike"]:
-            if keyword in query_lower:
-                return "preference_update"
-
-        # Check for recommendation requests
-        if self._should_use_rag(query):
-            return "recommendation"
-
-        # Default to general
-        return "general"
 
     async def process_query(self, query: str, user_id: str = "default_user") -> str:
         """
@@ -185,7 +130,7 @@ class OrchestratorAgent(A2AAgent):
         log_info("orchestrator_processing_query", user_id=user_id, query_length=len(query))
 
         # Detect intent
-        intent = self._detect_intent(query)
+        intent = await self.intent_detector.detect_intent(query)
         log_info("intent_detected", user_id=user_id, intent=intent)
 
         # Handle preference updates

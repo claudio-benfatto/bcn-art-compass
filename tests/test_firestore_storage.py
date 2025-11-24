@@ -132,13 +132,22 @@ def test_delete_profile(mock_firestore_client):
     mock_client, mock_collection = mock_firestore_client
     
     mock_doc_ref = MagicMock()
+    mock_doc = MagicMock()
+    mock_doc.exists = True
+    mock_doc_ref.get.return_value = mock_doc
     mock_collection.document.return_value = mock_doc_ref
     
     storage = FirestoreStorage(project_id="test-project")
-    storage.delete_profile("user123")
+    result = storage.delete_profile("user123")
     
+    assert result is True
     mock_collection.document.assert_called_with("user123")
     mock_doc_ref.delete.assert_called_once()
+    
+    # Test deleting non-existent profile
+    mock_doc.exists = False
+    result = storage.delete_profile("nonexistent")
+    assert result is False
 
 
 def test_list_profiles(mock_firestore_client):

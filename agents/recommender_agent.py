@@ -14,7 +14,7 @@ A2A-compliant for future agent-to-agent communication.
 from typing import TYPE_CHECKING, List, Optional, Union
 
 from agents.a2a_protocol import A2AAgent, A2AMessage, AgentCapability, MessageType
-from observability import log_info
+from observability import log_info, log_error
 from rag.models import EventWithVenue, SearchResult
 from rag.vector_store import VectorStore
 from tools.geocoder import geocoder_tool
@@ -54,9 +54,10 @@ class RecommenderAgent(A2AAgent):
             output_schema={"recommendations": "list[EventWithVenue]"},
         ))
 
-        self.vector_store = vector_store or VectorStore()
+        # Store vector_store (may be None in cloud without proper setup)
+        self.vector_store = vector_store
         self.geocoder = geocoder_tool
-        log_info("recommender_agent_initialized")
+        log_info("recommender_agent_initialized", has_vector_store=vector_store is not None)
 
     def recommend(
         self,
@@ -85,12 +86,21 @@ class RecommenderAgent(A2AAgent):
             "generating_recommendations",
             query=query[:100],
             has_profile=profile is not None,
+            has_vector_store=self.vector_store is not None,
             k=k,
         )
 
+        # Check if vector store is available
+        if self.vector_store is None:
+            log_error(
+                "vector_store_not_available",
+                message="Cannot generate recommendations without vector store",
+            )
+            return []
+
         # Query vector store with profile-aware scoring
         results = self.vector_store.query(
-            query,  # Positional argument
+            query,
             k=k,
             profile=profile,
             filters=filters or {},
@@ -201,11 +211,11 @@ class RecommenderAgent(A2AAgent):
             # Events 2-5km: +0.10 boost
             # Events 5-10km: +0.05 boost
             # Events >10km: no boost
-            if distance_km <= 2:
+            if distance_km <= 1:
                 proximity_boost = 0.15
-            elif distance_km <= 5:
+            elif distance_km <= 2:
                 proximity_boost = 0.10
-            elif distance_km <= 10:
+            elif distance_km <= 5:
                 proximity_boost = 0.05
             else:
                 proximity_boost = 0.0

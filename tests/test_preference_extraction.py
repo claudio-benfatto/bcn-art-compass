@@ -1,14 +1,15 @@
 """
 Tests for Milestone 3: Preference extraction from natural language.
 
-Tests the ProfileAgent.extract_preferences() method with mocked LLM responses.
+Tests the ProfileAgent.extract_preferences() method with mocked PreferenceExtractor.
 """
 
-import json
+from typing import Dict
 from unittest.mock import MagicMock
 
 import pytest
 
+from agents.preference_extractor import PreferenceExtractor
 from agents.profile_agent import ProfileAgent
 from memory.storage import MemoryStorage
 
@@ -20,60 +21,46 @@ def temp_storage(tmp_path):
     return MemoryStorage(str(storage_path))
 
 
-@pytest.fixture
-def profile_agent(temp_storage):
-    """Create a ProfileAgent with temporary storage for testing.
+class MockPreferenceExtractor(PreferenceExtractor):
+    """Mock extractor for testing that returns controlled responses."""
     
-    Tests will mock the LLM client, so we just need the agent structure.
-    """
-    agent = ProfileAgent(storage=temp_storage, use_local_llm=False)
-    # Override to allow mocking - tests will inject mock_gemini_model
-    agent.llm_type = "gemini"  # Ensure LLM path is taken, not rule-based
-    agent.model = "gemini-1.5-flash"  # Set a model name
-    return agent
+    def __init__(self):
+        self.mock_response: Dict = {}
+    
+    def set_response(self, favorite_genres=None, disliked_genres=None, favorite_artists=None, location=None):
+        """Set the response that will be returned by extract()."""
+        self.mock_response = {
+            "favorite_genres": favorite_genres or [],
+            "disliked_genres": disliked_genres or [],
+            "favorite_artists": favorite_artists or [],
+            "location": location,
+        }
+    
+    async def extract(self, text: str) -> Dict:
+        """Return the pre-configured mock response."""
+        return self.mock_response
 
 
 @pytest.fixture
-def mock_gemini_model():
-    """Create a mock Gemini client."""
-    client = MagicMock()
-    return client
+def mock_extractor():
+    """Create a mock preference extractor."""
+    return MockPreferenceExtractor()
 
 
-def create_gemini_response(favorite_genres=None, disliked_genres=None, favorite_artists=None, location=None):
+@pytest.fixture
+def profile_agent(temp_storage, mock_extractor):
+    """Create a ProfileAgent with temporary storage and mock extractor.
+    
+    Tests will configure mock_extractor responses.
     """
-    Helper to create a mock Gemini API response.
-
-    Args:
-        favorite_genres: List of favorite genres
-        disliked_genres: List of disliked genres
-        favorite_artists: List of favorite artists
-        location: Location string
-
-    Returns:
-        Mock response object
-    """
-    response_data = {
-        "favorite_genres": favorite_genres or [],
-        "disliked_genres": disliked_genres or [],
-        "favorite_artists": favorite_artists or [],
-        "location": location,
-    }
-    response = MagicMock()
-    response.text = json.dumps(response_data)
-    return response
+    return ProfileAgent(storage=temp_storage, preference_extractor=mock_extractor)
 
 
 @pytest.mark.asyncio
-async def test_extract_simple_dislike(profile_agent, mock_gemini_model):
+async def test_extract_simple_dislike(profile_agent, mock_extractor):
     """Test extracting a simple dislike statement."""
-    # Mock the model response
-    mock_gemini_model.models.generate_content.return_value = create_gemini_response(
-        disliked_genres=["video art"]
-    )
-
-    # Replace the agent's model
-    profile_agent.client = mock_gemini_model
+    # Configure mock response
+    mock_extractor.set_response(disliked_genres=["video art"])
 
     # Extract preferences
     profile = await profile_agent.extract_preferences("test_user", "I don't like video art")
@@ -85,13 +72,9 @@ async def test_extract_simple_dislike(profile_agent, mock_gemini_model):
 
 
 @pytest.mark.asyncio
-async def test_extract_simple_like(profile_agent, mock_gemini_model):
+async def test_extract_simple_like(profile_agent, mock_extractor):
     """Test extracting a simple like statement."""
-    mock_gemini_model.models.generate_content.return_value = create_gemini_response(
-        favorite_genres=["contemporary sculpture"]
-    )
-
-    profile_agent.client = mock_gemini_model
+    mock_extractor.set_response(favorite_genres=["contemporary sculpture"])
 
     profile = await profile_agent.extract_preferences("test_user", "I love contemporary sculpture")
 
@@ -100,14 +83,12 @@ async def test_extract_simple_like(profile_agent, mock_gemini_model):
 
 
 @pytest.mark.asyncio
-async def test_extract_multiple_preferences(profile_agent, mock_gemini_model):
+async def test_extract_multiple_preferences(profile_agent, mock_extractor):
     """Test extracting multiple preferences in one statement."""
-    mock_gemini_model.models.generate_content.return_value = create_gemini_response(
+    mock_extractor.set_response(
         favorite_genres=["contemporary art", "sculpture"],
         favorite_artists=["Picasso", "Miró"]
     )
-
-    profile_agent.client = mock_gemini_model
 
     profile = await profile_agent.extract_preferences(
         "test_user",
@@ -121,13 +102,9 @@ async def test_extract_multiple_preferences(profile_agent, mock_gemini_model):
 
 
 @pytest.mark.asyncio
-async def test_extract_artist_mention(profile_agent, mock_gemini_model):
+async def test_extract_artist_mention(profile_agent, mock_extractor):
     """Test extracting favorite artist mentions."""
-    mock_gemini_model.models.generate_content.return_value = create_gemini_response(
-        favorite_artists=["Antoni Tàpies"]
-    )
-
-    profile_agent.client = mock_gemini_model
+    mock_extractor.set_response(favorite_artists=["Antoni Tàpies"])
 
     profile = await profile_agent.extract_preferences(
         "test_user",
@@ -138,13 +115,9 @@ async def test_extract_artist_mention(profile_agent, mock_gemini_model):
 
 
 @pytest.mark.asyncio
-async def test_extract_location(profile_agent, mock_gemini_model):
+async def test_extract_location(profile_agent, mock_extractor):
     """Test extracting location information."""
-    mock_gemini_model.models.generate_content.return_value = create_gemini_response(
-        location="Gràcia, Barcelona"
-    )
-
-    profile_agent.client = mock_gemini_model
+    mock_extractor.set_response(location="Gràcia, Barcelona")
 
     profile = await profile_agent.extract_preferences(
         "test_user",
@@ -155,21 +128,10 @@ async def test_extract_location(profile_agent, mock_gemini_model):
 
 
 @pytest.mark.asyncio
-async def test_extract_with_markdown_cleanup(profile_agent, mock_gemini_model):
-    """Test that markdown code blocks are properly cleaned up."""
-    # Mock response with markdown code block
-    mock_response = MagicMock()
-    mock_response.text = """```json
-{
-  "favorite_genres": ["painting"],
-  "disliked_genres": [],
-  "favorite_artists": [],
-  "location": null
-}
-```"""
-    mock_gemini_model.models.generate_content.return_value = mock_response
-
-    profile_agent.client = mock_gemini_model
+async def test_extract_with_markdown_cleanup(profile_agent, mock_extractor):
+    """Test that markdown code blocks are properly cleaned up (tested in extractor)."""
+    # The cleanup happens in the extractor now, so just test that extraction works
+    mock_extractor.set_response(favorite_genres=["painting"])
 
     profile = await profile_agent.extract_preferences("test_user", "I like painting")
 
@@ -177,51 +139,47 @@ async def test_extract_with_markdown_cleanup(profile_agent, mock_gemini_model):
 
 
 @pytest.mark.asyncio
-async def test_extract_handles_error_gracefully(profile_agent, mock_gemini_model):
+async def test_extract_handles_error_gracefully(profile_agent):
     """Test that errors during extraction are handled gracefully."""
-    # Mock an error
-    mock_gemini_model.generate_content.side_effect = Exception("API error")
-
-    profile_agent.client = mock_gemini_model
-
-    # Should return existing profile without crashing
-    profile = await profile_agent.extract_preferences("test_user", "I like art")
-
-    # Profile should exist but have no changes
-    assert profile is not None
-
-
-@pytest.mark.asyncio
-async def test_extract_invalid_json_fallback(profile_agent, mock_gemini_model):
-    """Test fallback when LLM returns invalid JSON."""
-    mock_response = MagicMock()
-    mock_response.text = "This is not valid JSON"
-    mock_gemini_model.models.generate_content.return_value = mock_response
-
-    profile_agent.client = mock_gemini_model
+    # Create a mock extractor that raises an error
+    error_extractor = MockPreferenceExtractor()
+    
+    async def raise_error(text):
+        raise Exception("Extraction error")
+    
+    error_extractor.extract = raise_error
+    profile_agent.preference_extractor = error_extractor
 
     # Should return existing profile without crashing
     profile = await profile_agent.extract_preferences("test_user", "I like art")
 
+    # Profile should exist but have no changes from extraction
     assert profile is not None
 
 
 @pytest.mark.asyncio
-async def test_extract_updates_existing_profile(profile_agent, mock_gemini_model):
+async def test_extract_invalid_json_fallback(profile_agent, mock_extractor):
+    """Test fallback when extraction returns empty/invalid data."""
+    # Set empty response
+    mock_extractor.set_response()
+
+    # Should return existing profile without crashing
+    profile = await profile_agent.extract_preferences("test_user", "I like art")
+
+    assert profile is not None
+
+
+@pytest.mark.asyncio
+async def test_extract_updates_existing_profile(profile_agent, mock_extractor):
     """Test that extraction updates an existing profile."""
     # Create initial profile with one preference
-    mock_gemini_model.models.generate_content.return_value = create_gemini_response(
-        favorite_genres=["painting"]
-    )
-    profile_agent.client = mock_gemini_model
+    mock_extractor.set_response(favorite_genres=["painting"])
 
     profile1 = await profile_agent.extract_preferences("test_user", "I like painting")
     assert "painting" in profile1.favorite_genres
 
     # Add another preference
-    mock_gemini_model.models.generate_content.return_value = create_gemini_response(
-        favorite_genres=["sculpture"]
-    )
+    mock_extractor.set_response(favorite_genres=["sculpture"])
 
     profile2 = await profile_agent.extract_preferences("test_user", "I also like sculpture")
 
@@ -231,12 +189,9 @@ async def test_extract_updates_existing_profile(profile_agent, mock_gemini_model
 
 
 @pytest.mark.asyncio
-async def test_extract_persistence(profile_agent, mock_gemini_model):
+async def test_extract_persistence(profile_agent, mock_extractor):
     """Test that extracted preferences are persisted to storage."""
-    mock_gemini_model.models.generate_content.return_value = create_gemini_response(
-        favorite_genres=["abstract art"]
-    )
-    profile_agent.client = mock_gemini_model
+    mock_extractor.set_response(favorite_genres=["abstract art"])
 
     await profile_agent.extract_preferences("test_user", "I love abstract art")
 
@@ -246,13 +201,12 @@ async def test_extract_persistence(profile_agent, mock_gemini_model):
 
 
 @pytest.mark.asyncio
-async def test_extract_mixed_likes_and_dislikes(profile_agent, mock_gemini_model):
+async def test_extract_mixed_likes_and_dislikes(profile_agent, mock_extractor):
     """Test extracting both likes and dislikes in one statement."""
-    mock_gemini_model.models.generate_content.return_value = create_gemini_response(
+    mock_extractor.set_response(
         favorite_genres=["painting"],
         disliked_genres=["video art", "performance art"]
     )
-    profile_agent.client = mock_gemini_model
 
     profile = await profile_agent.extract_preferences(
         "test_user",
