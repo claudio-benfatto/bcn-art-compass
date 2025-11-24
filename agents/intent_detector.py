@@ -68,13 +68,13 @@ class IntentDetector(ABC):
 class GeminiIntentDetector(IntentDetector):
     """Intent detector using Google Gemini."""
 
-    def __init__(self, api_key: str, model: str = "gemini-1.5-flash"):
+    def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
         """
         Initialize Gemini intent detector.
 
         Args:
             api_key: Google API key
-            model: Gemini model to use
+            model: Gemini model to use (default: gemini-2.5-flash)
         """
         from google import genai
 
