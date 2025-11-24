@@ -39,6 +39,9 @@ env/
 htmlcov/
 *.cover
 
+# Linting
+.ruff_cache/
+
 # Logs
 *.log
 
