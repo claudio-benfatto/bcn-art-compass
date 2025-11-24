@@ -50,10 +50,9 @@ htmlcov/
 .env.local
 .env.*.local
 
-# Storage (local data)
-storage/data/
-storage/chroma_db/
-*.db
+# Storage (local runtime data)
+storage/
+!storage/.gitkeep
 
 # Generated files (embeddings, artifacts)
 generated/
