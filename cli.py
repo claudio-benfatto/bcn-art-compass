@@ -11,7 +11,6 @@ Automatically detects environment and uses either:
 """
 
 import asyncio
-import os
 import sys
 import uuid
 from pathlib import Path
