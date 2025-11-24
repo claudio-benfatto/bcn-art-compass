@@ -53,7 +53,7 @@ def create_searchable_text(event: dict) -> str:
     return " ".join(filter(None, parts))
 
 
-def prepare_vertex_ai_data(events: list[dict], output_file: str = "vertex_embeddings.jsonl"):
+def prepare_vertex_ai_data(events: list[dict], output_file: str = "generated/vertex_embeddings.jsonl"):
     """
     Prepare data for Vertex AI Vector Search.
     
@@ -110,7 +110,7 @@ def main():
     prepare_vertex_ai_data(events)
     print()
     print("Next steps:")
-    print("1. Upload vertex_embeddings.jsonl to Google Cloud Storage")
+    print("1. Upload generated/vertex_embeddings.jsonl to Google Cloud Storage")
     print("2. Create Vertex AI Vector Search index")
     print("3. Deploy the index to an endpoint")
     print()

@@ -55,6 +55,9 @@ storage/data/
 storage/chroma_db/
 *.db
 
+# Generated files (embeddings, artifacts)
+generated/
+
 # OS
 .DS_Store
 Thumbs.db

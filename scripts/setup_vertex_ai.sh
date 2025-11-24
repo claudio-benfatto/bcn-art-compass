@@ -26,7 +26,7 @@ REGION=${2:-europe-southwest1}
 INDEX_DISPLAY_NAME="bcn-art-compass-index"
 ENDPOINT_DISPLAY_NAME="bcn-art-compass-endpoint"
 BUCKET_NAME="${PROJECT_ID}-vertex-embeddings"
-EMBEDDINGS_FILE="vertex_embeddings.jsonl"
+EMBEDDINGS_FILE="generated/vertex_embeddings.jsonl"
 
 # Validate arguments
 if [ -z "$PROJECT_ID" ]; then

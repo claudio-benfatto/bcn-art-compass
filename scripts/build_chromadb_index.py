@@ -38,7 +38,7 @@ def create_searchable_text(event: dict) -> str:
 
 def build_chromadb_index(
     events: list[dict],
-    embeddings_file: str = "vertex_embeddings.jsonl",
+    embeddings_file: str = "generated/vertex_embeddings.jsonl",
     output_dir: str = "storage/chromadb",
 ):
     """
@@ -136,7 +136,7 @@ def main():
     print()
 
     # Check if embeddings file exists
-    embeddings_file = "vertex_embeddings.jsonl"
+    embeddings_file = "generated/vertex_embeddings.jsonl"
     if not Path(embeddings_file).exists():
         print(f"Error: {embeddings_file} not found")
         print()

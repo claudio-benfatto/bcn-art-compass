@@ -26,22 +26,22 @@ echo ""
 
 # Step 1: Regenerate embeddings
 echo -e "${YELLOW}Step 1: Generating embeddings from events.yaml...${NC}"
-rm -f vertex_embeddings.jsonl
+rm -f generated/vertex_embeddings.jsonl
 uv run ./scripts/prepare_vertex_data.py
 
-if [ ! -f vertex_embeddings.jsonl ]; then
+if [ ! -f generated/vertex_embeddings.jsonl ]; then
     echo "Error: Failed to generate embeddings"
     exit 1
 fi
 
-EVENT_COUNT=$(wc -l < vertex_embeddings.jsonl | tr -d ' ')
+EVENT_COUNT=$(wc -l < generated/vertex_embeddings.jsonl | tr -d ' ')
 echo -e "${GREEN}✓ Generated embeddings for ${EVENT_COUNT} events${NC}"
 echo ""
 
 # Step 2: Upload to GCS
 echo -e "${YELLOW}Step 2: Uploading embeddings to GCS...${NC}"
 JSON_FILE="vertex_embeddings.json"
-gsutil cp vertex_embeddings.jsonl "gs://${BUCKET_NAME}/embeddings/${JSON_FILE}"
+gsutil cp generated/vertex_embeddings.jsonl "gs://${BUCKET_NAME}/embeddings/${JSON_FILE}"
 echo -e "${GREEN}✓ Uploaded to gs://${BUCKET_NAME}/embeddings/${JSON_FILE}${NC}"
 echo ""
 

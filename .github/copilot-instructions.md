@@ -155,7 +155,7 @@ Please avoid:
 
 ## Architecture & Data Flow
 ```
-events.yaml → Pydantic validation → precompute_embeddings.py → embeddings_v1.json 
+events.yaml → Pydantic validation → precompute_embeddings.py → generated/vertex_embeddings.jsonl 
 → ChromaDB vector store → EventRetriever → retrieve_events tool → ADK framework
 ```
 
