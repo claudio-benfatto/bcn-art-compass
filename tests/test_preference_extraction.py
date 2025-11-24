@@ -22,9 +22,15 @@ def temp_storage(tmp_path):
 
 @pytest.fixture
 def profile_agent(temp_storage):
-    """Create a ProfileAgent with temporary storage and force Gemini mode for testing."""
-    # Force use of Gemini (not local LLM) for consistent tests
-    return ProfileAgent(storage=temp_storage, use_local_llm=False)
+    """Create a ProfileAgent with temporary storage for testing.
+    
+    Tests will mock the LLM client, so we just need the agent structure.
+    """
+    agent = ProfileAgent(storage=temp_storage, use_local_llm=False)
+    # Override to allow mocking - tests will inject mock_gemini_model
+    agent.llm_type = "gemini"  # Ensure LLM path is taken, not rule-based
+    agent.model = "gemini-1.5-flash"  # Set a model name
+    return agent
 
 
 @pytest.fixture

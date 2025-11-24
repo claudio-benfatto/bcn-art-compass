@@ -16,7 +16,7 @@ from google import genai
 from agents.a2a_protocol import A2AAgent, A2AMessage, AgentCapability, MessageType
 from memory.models import UserProfile
 from memory.storage import MemoryStorage
-from observability import log_info
+from observability import log_info, log_warning
 
 try:
     import ollama
@@ -102,9 +102,8 @@ class ProfileAgent(A2AAgent):
             # Configure Gemini API key
             api_key = os.getenv("GOOGLE_API_KEY")
             if not api_key:
-                log_info(
+                log_warning(
                     "google_api_key_missing",
-                    level="warning",
                     message="GOOGLE_API_KEY not set, falling back to rule-based extraction"
                 )
                 self.model = None
