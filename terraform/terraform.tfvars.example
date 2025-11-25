@@ -1,0 +1,21 @@
+# Example terraform.tfvars file
+# Copy this to terraform.tfvars and customize for your environment
+
+project_id = "bcn-art-compass"
+region     = "europe-southwest1"
+
+# Cloud Run Configuration
+service_name           = "bcn-art-compass"
+min_instances          = 0
+max_instances          = 1
+cpu_limit              = "1"
+memory_limit           = "512Mi"
+request_timeout        = 60
+allow_unauthenticated  = true
+
+# Vertex AI Configuration
+use_vertex_rag        = false  # Set to true when ready to use Vertex AI
+embedding_dimensions  = 768    # For text-embedding-005 model
+
+# Docker Image (updated by CI/CD)
+docker_image = "gcr.io/bcn-art-compass/bcn-art-compass:latest"

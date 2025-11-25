@@ -1,5 +1,10 @@
 # Cloud Build configuration for BCN Art Compass
 # Deploy to Cloud Run with automated builds
+#
+# This file is compatible with Terraform-managed infrastructure.
+# - Terraform manages the Cloud Run service configuration
+# - Cloud Build handles Docker image builds and deployments
+# - The 'gcloud run deploy' command updates only the image, not the full config
 
 steps:
   # Build Docker image using Cloud Build's Docker builder
