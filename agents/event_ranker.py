@@ -24,13 +24,15 @@ class EventRanker(ABC):
         self,
         results: List[Union[EventWithVenue, SearchResult]],
         profile: "UserProfile",
+        user_query: str = "",
     ) -> List[Union[EventWithVenue, SearchResult]]:
         """
-        Rank events based on user profile and context.
+        Rank events based on user query, profile, and location.
 
         Args:
             results: List of events from RAG search with scores
             profile: User profile with preferences and location
+            user_query: Original user search query
 
         Returns:
             Re-ranked list of results
@@ -41,6 +43,7 @@ class EventRanker(ABC):
         self,
         events_context: List[dict],
         profile: "UserProfile",
+        user_query: str = "",
     ) -> str:
         """
         Build comprehensive prompt with all ranking context.
@@ -48,6 +51,7 @@ class EventRanker(ABC):
         Args:
             events_context: List of event dictionaries with all details
             profile: User profile
+            user_query: Original user search query
 
         Returns:
             Formatted prompt string
@@ -72,25 +76,29 @@ class EventRanker(ABC):
             for e in events_context
         ])
 
+        query_text = f"User Query: \"{user_query}\"\n" if user_query else ""
+
         prompt = f"""You are an expert art curator helping rank cultural events for a user.
 
-{profile_text}
+{query_text}{profile_text}
 
 Events to rank:
 {events_text}
 
 Task: Rank these events from most to least relevant for this user.
 
-Consider:
-1. **User preferences**: Strongly favor favorite genres/artists, avoid disliked genres
-2. **Query relevance**: The RAG score shows semantic similarity to what the user asked for
-3. **Proximity**: Closer events are more convenient, but amazing events may be worth traveling for
-4. **Balance**: Sometimes a slightly farther event matching favorites is better than a nearby event they'd dislike
+Consider ALL THREE factors:
+1. **User query**: What is the user specifically looking for? This is their immediate intent.
+2. **User preferences**: Favor favorite genres/artists, avoid disliked genres (long-term profile)
+3. **Location**: Closer events are more convenient, but amazing matches may be worth traveling for
+4. **RAG score**: Shows semantic similarity between the event and the user's query
 
 Apply nuanced reasoning. For example:
-- An event with a favorite genre 5km away might beat a neutral event 1km away
-- Avoid disliked genres even if RAG score is high
-- Very high RAG scores indicate strong query match - don't ignore them
+- If user asks "sculpture exhibitions", prioritize sculpture events even if farther away
+- An event matching the query + favorite genre beats one that only matches profile
+- Avoid disliked genres even if they match the query
+- Balance query intent with profile preferences and location
+- Very high RAG scores indicate strong query-event match - weight them heavily
 
 Respond with ONLY a comma-separated list of event numbers in your preferred ranking order.
 Example: 3, 1, 5, 2, 4
@@ -199,6 +207,7 @@ class GeminiEventRanker(EventRanker):
         self,
         results: List[Union[EventWithVenue, SearchResult]],
         profile: "UserProfile",
+        user_query: str = "",
     ) -> List[Union[EventWithVenue, SearchResult]]:
         """Rank events using Gemini."""
         if not results:
@@ -288,6 +297,7 @@ class OllamaEventRanker(EventRanker):
         self,
         results: List[Union[EventWithVenue, SearchResult]],
         profile: "UserProfile",
+        user_query: str = "",
     ) -> List[Union[EventWithVenue, SearchResult]]:
         """Rank events using Ollama."""
         if not results:
@@ -314,8 +324,8 @@ class OllamaEventRanker(EventRanker):
         # Extract event context
         events_context = self._extract_events_context(results, user_coords)
 
-        # Build prompt
-        prompt = self._build_ranking_prompt(events_context, profile)
+        # Build ranking prompt with query, profile, and location
+        prompt = self._build_ranking_prompt(events_context, profile, user_query)
 
         try:
             import requests

@@ -120,8 +120,8 @@ class RecommenderAgent(A2AAgent):
         )
 
         if profile and self.event_ranker:
-            # Apply LLM-based ranking with all context
-            results = self.event_ranker.rank_events(results, profile)
+            # Apply LLM-based ranking with query, profile, and location
+            results = self.event_ranker.rank_events(results, profile, user_query=query)
         else:
             # No profile or ranker, sort by RAG score
             results.sort(key=lambda x: getattr(x, "score", 0.0), reverse=True)
