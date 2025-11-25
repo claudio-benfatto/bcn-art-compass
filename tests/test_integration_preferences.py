@@ -33,12 +33,14 @@ def profile_agent(temp_storage):
 @pytest.fixture
 def recommender_agent():
     """Create a RecommenderAgent for testing."""
+    from agents.event_ranker import create_event_ranker
     from agents.recommender_agent import RecommenderAgent
     from rag.vector_store import VectorStore
 
     # Use local embeddings (simplified - no cloud options)
     vector_store = VectorStore()
-    return RecommenderAgent(vector_store=vector_store)
+    event_ranker = create_event_ranker()  # Uses Ollama by default
+    return RecommenderAgent(event_ranker=event_ranker, vector_store=vector_store)
 
 
 @pytest.fixture

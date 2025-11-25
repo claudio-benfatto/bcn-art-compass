@@ -97,13 +97,17 @@ class OrchestratorAgent(A2AAgent):
         # Create vector store based on config
         vector_store = _create_vector_store()
 
-        # Get API key for RecommenderAgent (for LLM ranking)
+        # Create event ranker for RecommenderAgent
         import os
+
+        from agents.event_ranker import create_event_ranker
+
         api_key = os.getenv("GOOGLE_API_KEY")
+        event_ranker = create_event_ranker(api_key=api_key)
 
         self.recommender_agent = recommender_agent or RecommenderAgent(
+            event_ranker=event_ranker,
             vector_store=vector_store,
-            api_key=api_key
         )
         self.profile_agent = profile_agent or ProfileAgent()
         self.intent_detector = intent_detector or create_intent_detector()

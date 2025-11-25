@@ -133,9 +133,9 @@ def test_recommender_uses_query_profile_location(
     assert results is not None
 
 
-def test_recommender_without_profile_skips_ranking(mock_vector_store):
+def test_recommender_without_profile_skips_ranking(mock_vector_store, mock_event_ranker):
     """Test that without profile, only RAG scores are used."""
-    agent = RecommenderAgent(vector_store=mock_vector_store)
+    agent = RecommenderAgent(event_ranker=mock_event_ranker, vector_store=mock_vector_store)
 
     query = "contemporary art"
     results = agent.recommend(query=query, profile=None, k=3)

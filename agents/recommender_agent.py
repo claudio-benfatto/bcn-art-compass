@@ -13,7 +13,7 @@ A2A-compliant for future agent-to-agent communication.
 from typing import TYPE_CHECKING, List, Optional, Union
 
 from agents.a2a_protocol import A2AAgent, A2AMessage, AgentCapability, MessageType
-from agents.event_ranker import EventRanker, create_event_ranker
+from agents.event_ranker import EventRanker
 from observability import log_error, log_info
 from rag.models import EventWithVenue, SearchResult
 from rag.vector_store import VectorStore
@@ -33,17 +33,15 @@ class RecommenderAgent(A2AAgent):
 
     def __init__(
         self,
+        event_ranker: EventRanker,
         vector_store: Optional[VectorStore] = None,
-        event_ranker: Optional[EventRanker] = None,
-        api_key: Optional[str] = None,
     ):
         """
         Initialize the recommender agent.
 
         Args:
-            vector_store: VectorStore instance for RAG queries
-            event_ranker: EventRanker instance for ranking results. If None, creates one
-            api_key: Google API key for Gemini (used if event_ranker not provided)
+            event_ranker: EventRanker instance for ranking results (required)
+            vector_store: VectorStore instance for RAG queries (optional)
         """
         # Initialize A2A protocol base
         super().__init__(agent_id="recommender_agent", name="RecommenderAgent")
@@ -60,16 +58,14 @@ class RecommenderAgent(A2AAgent):
             output_schema={"recommendations": "list[EventWithVenue]"},
         ))
 
-        # Store vector_store (may be None in cloud without proper setup)
+        # Store dependencies
         self.vector_store = vector_store
-
-        # Initialize or use provided event ranker
-        self.event_ranker = event_ranker or create_event_ranker(api_key=api_key)
+        self.event_ranker = event_ranker
 
         log_info(
             "recommender_agent_initialized",
             has_vector_store=vector_store is not None,
-            has_ranker=self.event_ranker is not None,
+            has_ranker=True,
         )
 
     def recommend(
