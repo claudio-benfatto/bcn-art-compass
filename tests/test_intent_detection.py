@@ -120,9 +120,9 @@ class TestOllamaIntentDetection:
         with patch('ollama.list', return_value=[]):
             detector = OllamaIntentDetector()
 
-            # Mock ollama client
+            # Mock ollama client (chat is synchronous, not async)
             mock_ollama = Mock()
-            mock_ollama.chat = AsyncMock(return_value={
+            mock_ollama.chat = Mock(return_value={
                 'message': {'content': 'recommendation'}
             })
             detector.client = mock_ollama
@@ -137,7 +137,7 @@ class TestOllamaIntentDetection:
             detector = OllamaIntentDetector()
 
             mock_ollama = Mock()
-            mock_ollama.chat = AsyncMock(return_value={
+            mock_ollama.chat = Mock(return_value={
                 'message': {'content': 'preference_update'}
             })
             detector.client = mock_ollama
@@ -152,7 +152,7 @@ class TestOllamaIntentDetection:
             detector = OllamaIntentDetector()
 
             mock_ollama = Mock()
-            mock_ollama.chat = AsyncMock(return_value={
+            mock_ollama.chat = Mock(return_value={
                 'message': {'content': 'general'}
             })
             detector.client = mock_ollama
@@ -167,7 +167,7 @@ class TestOllamaIntentDetection:
             detector = OllamaIntentDetector()
 
             mock_ollama = Mock()
-            mock_ollama.chat = AsyncMock(return_value={
+            mock_ollama.chat = Mock(return_value={
                 'message': {'content': 'invalid_intent'}
             })
             detector.client = mock_ollama
@@ -182,7 +182,7 @@ class TestOllamaIntentDetection:
             detector = OllamaIntentDetector()
 
             mock_ollama = Mock()
-            mock_ollama.chat = AsyncMock(side_effect=Exception("Connection error"))
+            mock_ollama.chat = Mock(side_effect=Exception("Connection error"))
             detector.client = mock_ollama
 
             with pytest.raises(Exception, match="Connection error"):
