@@ -11,11 +11,11 @@ from typing import AsyncGenerator, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from agents.orchestrator import OrchestratorAgent
+from agents.orchestrator import ADKOrchestrator, create_orchestrator
 from observability import configure_logging, log_error, log_info, set_correlation_id
 
 # Global orchestrator instance
-orchestrator: Optional[OrchestratorAgent] = None
+orchestrator: Optional[ADKOrchestrator] = None
 
 
 class ChatRequest(BaseModel):
@@ -44,13 +44,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     configure_logging()
     log_info("application_started", service="bcn-art-compass-api")
 
-    # Initialize orchestrator (will create vector store if needed)
+    # Initialize orchestrator with ADK
     try:
-        orchestrator = OrchestratorAgent()
-        log_info("orchestrator_initialized")
+        orchestrator = create_orchestrator()
+        log_info("adk_orchestrator_initialized")
     except Exception as e:
         log_error("orchestrator_initialization_failed", error=str(e))
-        log_error("api_will_run_without_rag")
+        log_info("api_will_run_with_limited_functionality")
 
     yield
 
@@ -135,13 +135,13 @@ async def chat(request: ChatRequest) -> ChatResponse:
     )
 
     try:
-        # Use orchestrator if available, otherwise fallback
+        # Use ADK orchestrator if available
         if orchestrator:
-            response_text = await orchestrator.process_query(request.message, request.user_id)
+            response_text = await orchestrator.chat_async(request.user_id, request.message)
         else:
             response_text = (
                 "The recommendation system is currently unavailable. "
-                "Please ensure GOOGLE_API_KEY is set and the vector store is initialized."
+                "Please ensure GOOGLE_API_KEY is set and try again."
             )
 
         log_info(

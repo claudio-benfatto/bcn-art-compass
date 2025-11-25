@@ -44,7 +44,7 @@ resource "google_project_service" "required_apis" {
 resource "google_storage_bucket" "vertex_embeddings" {
   name          = "${var.project_id}-vertex-embeddings"
   location      = var.region
-  force_destroy = false
+  force_destroy = true
 
   uniform_bucket_level_access = true
 
@@ -75,7 +75,6 @@ resource "google_storage_bucket_object" "embeddings" {
   source = "${path.module}/../generated/vertex_embeddings.jsonl"
 
   depends_on = [google_storage_bucket.vertex_embeddings]
-
   # Ignore changes made outside Terraform (e.g., via update-embeddings.sh)
   lifecycle {
     ignore_changes = [
