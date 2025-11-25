@@ -7,19 +7,16 @@ This agent is responsible for:
 - Ranking and filtering results
 - Formatting recommendations for users
 
-Part of Milestone 4: Clean Multi-Agent Workflow
 A2A-compliant for future agent-to-agent communication.
 """
 
 from typing import TYPE_CHECKING, List, Optional, Union
 
-import google.generativeai as genai
-
 from agents.a2a_protocol import A2AAgent, A2AMessage, AgentCapability, MessageType
+from agents.event_ranker import EventRanker, create_event_ranker
 from observability import log_error, log_info
 from rag.models import EventWithVenue, SearchResult
 from rag.vector_store import VectorStore
-from tools.geocoder import geocoder_tool
 
 if TYPE_CHECKING:
     from memory.models import UserProfile
@@ -34,13 +31,19 @@ class RecommenderAgent(A2AAgent):
     location is available.
     """
 
-    def __init__(self, vector_store: Optional[VectorStore] = None, api_key: Optional[str] = None):
+    def __init__(
+        self,
+        vector_store: Optional[VectorStore] = None,
+        event_ranker: Optional[EventRanker] = None,
+        api_key: Optional[str] = None,
+    ):
         """
         Initialize the recommender agent.
 
         Args:
-            vector_store: VectorStore instance for RAG queries. If None, creates a new one
-            api_key: Google API key for Gemini (uses env GOOGLE_API_KEY if not provided)
+            vector_store: VectorStore instance for RAG queries
+            event_ranker: EventRanker instance for ranking results. If None, creates one
+            api_key: Google API key for Gemini (used if event_ranker not provided)
         """
         # Initialize A2A protocol base
         super().__init__(agent_id="recommender_agent", name="RecommenderAgent")
@@ -59,28 +62,14 @@ class RecommenderAgent(A2AAgent):
 
         # Store vector_store (may be None in cloud without proper setup)
         self.vector_store = vector_store
-        self.geocoder = geocoder_tool
 
-        # Initialize LLM for ranking
-        self.llm_client = None
-        self.llm_backend = None
-
-        if api_key:
-            # Use Gemini
-            genai.configure(api_key=api_key)
-            self.llm_client = genai.GenerativeModel("gemini-2.5-flash")
-            self.llm_backend = "gemini"
-        else:
-            # Try Ollama for local development
-            import os
-            self.ollama_model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
-            self.ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-            self.llm_backend = "ollama"
+        # Initialize or use provided event ranker
+        self.event_ranker = event_ranker or create_event_ranker(api_key=api_key)
 
         log_info(
             "recommender_agent_initialized",
             has_vector_store=vector_store is not None,
-            llm_backend=self.llm_backend
+            has_ranker=self.event_ranker is not None,
         )
 
     def recommend(
@@ -130,11 +119,11 @@ class RecommenderAgent(A2AAgent):
             filters=filters or {},
         )
 
-        if profile:
+        if profile and self.event_ranker:
             # Apply LLM-based ranking with all context
-            results = self._apply_llm_ranking(results, profile)
+            results = self.event_ranker.rank_events(results, profile)
         else:
-            # No profile, sort by RAG score
+            # No profile or ranker, sort by RAG score
             results.sort(key=lambda x: getattr(x, "score", 0.0), reverse=True)
 
         log_info(
@@ -144,218 +133,6 @@ class RecommenderAgent(A2AAgent):
         )
 
         return results
-
-    def _apply_llm_ranking(
-        self,
-        results: List[Union[EventWithVenue, SearchResult]],
-        profile: "UserProfile",
-    ) -> List[Union[EventWithVenue, SearchResult]]:
-        """
-        Use LLM to rank events based on comprehensive context:
-        1. RAG semantic similarity scores
-        2. User profile (location, favorites, dislikes)
-        3. Distance calculations for each event
-
-        The LLM applies nuanced reasoning about trade-offs between relevance,
-        preferences, and proximity.
-
-        Args:
-            results: List of events from RAG search with scores
-            profile: User profile with preferences and location
-
-        Returns:
-            Re-ranked list of results
-        """
-        if not results:
-            return results
-
-        log_info(
-            "applying_llm_ranking",
-            num_events=len(results),
-            has_user_location=bool(profile.location),
-        )
-
-        # Get user coordinates for distance calculations
-        user_coords = None
-        if profile.location:
-            user_coords = self.geocoder.geocode(profile.location)
-            if user_coords:
-                user_lat, user_lon = user_coords["lat"], user_coords["lon"]
-                log_info(
-                    "user_location_resolved",
-                    location=profile.location,
-                    coords=f"{user_lat},{user_lon}",
-                )
-
-        # Build comprehensive event context for LLM
-        events_context = []
-        for idx, result in enumerate(results):
-            # Extract event details
-            if isinstance(result, EventWithVenue):
-                title = result.title
-                description = result.description
-                genres = result.genres
-                artists = result.artists if hasattr(result, "artists") else []
-                venue_name = result.venue.name
-                venue_lat = result.venue.latitude
-                venue_lon = result.venue.longitude
-            else:  # SearchResult
-                title = result.title
-                description = result.description
-                genres = result.genres
-                artists = getattr(result, "artists", [])
-                venue_name = result.venue_name
-                venue_lat = result.venue_latitude
-                venue_lon = result.venue_longitude
-
-            rag_score = result.score if hasattr(result, "score") else 0.0
-
-            # Calculate distance if possible
-            distance_km = None
-            if user_coords and venue_lat and venue_lon:
-                distance_km = self.geocoder.calculate_distance(
-                    user_lat, user_lon, venue_lat, venue_lon
-                )
-
-            events_context.append({
-                "index": idx + 1,
-                "title": title,
-                "description": description[:250],
-                "genres": genres,
-                "artists": artists if artists else [],
-                "venue": venue_name,
-                "rag_score": round(rag_score, 3),
-                "distance_km": round(distance_km, 2) if distance_km else "unknown",
-            })
-
-        # Build prompt with all context
-        prompt = self._build_ranking_prompt(events_context, profile)
-
-        try:
-            log_info("calling_llm_for_ranking", num_events=len(results), backend=self.llm_backend)
-
-            # Call LLM based on backend
-            if self.llm_backend == "gemini":
-                response = self.llm_client.generate_content(prompt)
-                ranking_text = response.text.strip()
-            else:  # ollama
-                import requests
-                response = requests.post(
-                    f"{self.ollama_base_url}/api/generate",
-                    json={
-                        "model": self.ollama_model,
-                        "prompt": prompt,
-                        "stream": False,
-                    },
-                    timeout=30
-                )
-                response.raise_for_status()
-                ranking_text = response.json()["response"].strip()
-
-            log_info("llm_ranking_response", response=ranking_text[:200])
-
-            # Parse ranking (expecting comma-separated numbers)
-            import re
-            ranking_indices = []
-            for x in ranking_text.split(","):
-                x = x.strip()
-                # Extract first number found
-                match = re.search(r"\d+", x)
-                if match:
-                    ranking_indices.append(int(match.group()) - 1)
-
-            # Validate ranking
-            if len(ranking_indices) == len(results) and set(ranking_indices) == set(range(len(results))):
-                reranked = [results[i] for i in ranking_indices]
-                
-                # Get titles for logging (works for both EventWithVenue and SearchResult)
-                def get_title(r):
-                    return r.title[:50] if hasattr(r, "title") else "unknown"
-                
-                log_info(
-                    "llm_ranking_applied",
-                    original_top=get_title(results[0]),
-                    reranked_top=get_title(reranked[0]),
-                )
-                return reranked
-            else:
-                log_error(
-                    "llm_ranking_invalid",
-                    expected=len(results),
-                    got=len(ranking_indices),
-                    indices=ranking_indices,
-                    reason="Invalid ranking from LLM, using RAG score order",
-                )
-                results.sort(key=lambda x: getattr(x, "score", 0.0), reverse=True)
-                return results
-
-        except Exception as e:
-            log_error("llm_ranking_failed", error=str(e), error_type=type(e).__name__)
-            # Fallback to RAG score sorting
-            results.sort(key=lambda x: getattr(x, "score", 0.0), reverse=True)
-            return results
-
-    def _build_ranking_prompt(
-        self,
-        events_context: List[dict],
-        profile: "UserProfile",
-    ) -> str:
-        """
-        Build comprehensive prompt with all ranking context.
-
-        Args:
-            events_context: List of event dictionaries with all details
-            profile: User profile
-
-        Returns:
-            Formatted prompt string
-        """
-        # Format user profile
-        profile_text = f"""User Profile:
-- Location: {profile.location or 'Not specified'}
-- Favorite genres: {', '.join(profile.favorite_genres) if profile.favorite_genres else 'None'}
-- Favorite artists: {', '.join(profile.favorite_artists) if profile.favorite_artists else 'None'}
-- Disliked genres: {', '.join(profile.disliked_genres) if profile.disliked_genres else 'None'}
-"""
-
-        # Format events
-        events_text = "\n\n".join([
-            f"""{e['index']}. {e['title']}
-   Venue: {e['venue']}
-   Genres: {', '.join(e['genres'][:3])}
-   Artists: {', '.join(e['artists'][:2]) if e['artists'] else 'N/A'}
-   RAG Score: {e['rag_score']} (semantic similarity to query)
-   Distance: {e['distance_km']} km from user
-   Description: {e['description']}"""
-            for e in events_context
-        ])
-
-        prompt = f"""You are an expert art curator helping rank cultural events for a user.
-
-{profile_text}
-
-Events to rank:
-{events_text}
-
-Task: Rank these events from most to least relevant for this user.
-
-Consider:
-1. **User preferences**: Strongly favor favorite genres/artists, avoid disliked genres
-2. **Query relevance**: The RAG score shows semantic similarity to what the user asked for
-3. **Proximity**: Closer events are more convenient, but amazing events may be worth traveling for
-4. **Balance**: Sometimes a slightly farther event matching favorites is better than a nearby event they'd dislike
-
-Apply nuanced reasoning. For example:
-- An event with a favorite genre 5km away might beat a neutral event 1km away
-- Avoid disliked genres even if RAG score is high
-- Very high RAG scores indicate strong query match - don't ignore them
-
-Respond with ONLY a comma-separated list of event numbers in your preferred ranking order.
-Example: 3, 1, 5, 2, 4
-
-Your ranking:"""
-
-        return prompt
 
     def format_recommendations(
         self,
