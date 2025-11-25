@@ -75,5 +75,5 @@ export GOOGLE_CLOUD_LOCATION="$LOCATION"
 export VERTEX_INDEX_ENDPOINT="$INDEX_ENDPOINT"
 export VERTEX_DEPLOYED_INDEX_ID="$DEPLOYED_INDEX_ID"
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 PYTHONPATH=$PWD uv run python cli.py

@@ -137,7 +137,7 @@ class OllamaIntentDetector(IntentDetector):
         prompt = self._get_intent_detection_prompt(query)
 
         try:
-            response = await self.client.chat(
+            response = self.client.chat(
                 model=self.model,
                 messages=[{
                     'role': 'user',
