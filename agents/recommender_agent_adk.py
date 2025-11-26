@@ -15,7 +15,7 @@ from agents.tools.distance_tools import (
     calculate_distances_tool,
     calculate_single_distance_tool,
 )
-from agents.tools.recommendation_tools import initialize_recommendation_tools, recommend_events_tool
+from agents.tools.recommendation_tools import create_recommendation_tools
 from observability import log_info
 from rag.vector_store import VectorStore
 
@@ -137,7 +137,7 @@ Remember: You're the cultural discovery expert with location awareness!
 def create_recommender_agent(
     vector_store: Optional[VectorStore] = None,
     event_ranker: Optional[EventRanker] = None,
-    model_name: str = "gemini-2.0-flash-exp",
+    model_name: str = "gemini-2.5-flash-exp",
 ) -> Agent:
     """Create the Recommender Agent.
 
@@ -149,8 +149,11 @@ def create_recommender_agent(
     Returns:
         Configured genai.Agent for event recommendations
     """
-    # Initialize recommendation tools with dependencies
-    initialize_recommendation_tools(vector_store=vector_store, event_ranker=event_ranker)
+    # Create recommendation tool with dependencies via closure
+    recommend_events_tool = create_recommendation_tools(
+        vector_store=vector_store,
+        event_ranker=event_ranker
+    )
 
     log_info(
         "creating_recommender_agent",

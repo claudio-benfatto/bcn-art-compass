@@ -1,25 +1,19 @@
 """ADK tools for the BCN Art Compass multi-agent system.
 
-This module contains tool definitions that can be used by ADK agents.
-Tools are stateless, decorated functions that encapsulate specific capabilities.
+This module contains tool factory functions that use closure pattern for dependency injection.
+Tools are created by calling factory functions with required dependencies.
 """
 
 from agents.tools.distance_tools import (
     calculate_distances_tool,
     calculate_single_distance_tool,
 )
-from agents.tools.profile_tools import (
-    extract_preferences_tool,
-    get_profile_tool,
-    update_profile_tool,
-)
-from agents.tools.recommendation_tools import recommend_events_tool
+from agents.tools.profile_tools import create_profile_tools
+from agents.tools.recommendation_tools import create_recommendation_tools
 
 __all__ = [
-    "get_profile_tool",
-    "update_profile_tool",
-    "extract_preferences_tool",
-    "recommend_events_tool",
+    "create_profile_tools",
+    "create_recommendation_tools",
     "calculate_distances_tool",
     "calculate_single_distance_tool",
 ]

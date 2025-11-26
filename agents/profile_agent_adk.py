@@ -10,12 +10,7 @@ from typing import Optional
 
 from google.adk import Agent
 
-from agents.tools.profile_tools import (
-    extract_preferences_tool,
-    get_profile_tool,
-    initialize_profile_tools,
-    update_profile_tool,
-)
+from agents.tools.profile_tools import create_profile_tools
 from memory.storage_interface import ProfileStorage
 from observability import log_info
 
@@ -85,8 +80,10 @@ def create_profile_agent(
     Returns:
         Configured genai.Agent for profile management
     """
-    # Initialize profile tools with storage
-    initialize_profile_tools(storage=storage)
+    # Create profile tools with storage via closure
+    get_profile_tool, update_profile_tool, extract_preferences_tool = create_profile_tools(
+        storage=storage
+    )
 
     log_info("creating_profile_agent", model=model_name)
 

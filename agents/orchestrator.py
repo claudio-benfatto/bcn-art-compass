@@ -17,13 +17,8 @@ from google.adk import Agent
 from google.adk.tools import AgentTool
 from google.genai import types
 
-from agents.event_ranker import EventRanker
-from agents.profile_agent_adk import create_profile_agent
 from agents.prompts import ORCHESTRATOR_INSTRUCTIONS
-from agents.recommender_agent_adk import create_recommender_agent
-from memory.storage_interface import ProfileStorage
 from observability import log_error, log_info
-from rag.vector_store import VectorStore
 
 
 class ADKOrchestrator:
@@ -40,48 +35,23 @@ class ADKOrchestrator:
 
     def __init__(
         self,
-        profile_agent: Optional[Agent] = None,
-        recommender_agent: Optional[Agent] = None,
-        vector_store: Optional[VectorStore] = None,
-        event_ranker: Optional[EventRanker] = None,
-        storage: Optional[ProfileStorage] = None,
+        profile_agent: Agent,
+        recommender_agent: Agent,
         model_name: str = "gemini-2.5-flash-exp",
     ):
         """Initialize the ADK orchestrator.
 
         Args:
-            profile_agent: Pre-initialized Profile Agent (optional, will be created if not provided)
-            recommender_agent: Pre-initialized Recommender Agent (optional, will be created if not provided)
-            vector_store: VectorStore instance for RAG queries (optional, used if agents not provided)
-            event_ranker: EventRanker instance for LLM-based ranking (optional, used if agents not provided)
-            storage: ProfileStorage instance for user profiles (optional, used if agents not provided)
-            model_name: Gemini model to use (default: gemini-2.5-flash-exp)
+            profile_agent: Pre-initialized Profile Agent (required)
+            recommender_agent: Pre-initialized Recommender Agent (required)
+            model_name: Gemini model to use for orchestrator (default: gemini-2.5-flash-exp)
         """
         log_info(
             "adk_orchestrator_initializing",
             model=model_name,
-            has_profile_agent=profile_agent is not None,
-            has_recommender_agent=recommender_agent is not None,
-            has_vector_store=vector_store is not None,
-            has_ranker=event_ranker is not None,
+            profile_agent_name=profile_agent.name,
+            recommender_agent_name=recommender_agent.name,
         )
-
-        # Create specialized sub-agents if not provided
-        if profile_agent is None:
-            profile_agent = create_profile_agent(storage=storage, model_name=model_name)
-            log_info("profile_agent_created_internally")
-        else:
-            log_info("profile_agent_provided_externally")
-
-        if recommender_agent is None:
-            recommender_agent = create_recommender_agent(
-                vector_store=vector_store,
-                event_ranker=event_ranker,
-                model_name=model_name,
-            )
-            log_info("recommender_agent_created_internally")
-        else:
-            log_info("recommender_agent_provided_externally")
 
         # Create the orchestrator agent with sub-agents as tools
         self.agent = genai.Agent(
@@ -176,49 +146,43 @@ class ADKOrchestrator:
 
 
 def create_orchestrator(
-    profile_agent: Optional[Agent] = None,
-    recommender_agent: Optional[Agent] = None,
-    vector_store: Optional[VectorStore] = None,
-    event_ranker: Optional[EventRanker] = None,
-    storage: Optional[ProfileStorage] = None,
+    profile_agent: Agent,
+    recommender_agent: Agent,
     model_name: str = "gemini-2.5-flash-exp",
 ) -> ADKOrchestrator:
     """Factory function to create an ADK orchestrator.
 
     This is the recommended way to create an orchestrator instance.
-    Supports two patterns:
-    1. Pass pre-initialized agents (profile_agent, recommender_agent)
-    2. Pass dependencies (vector_store, event_ranker, storage) and let orchestrator create agents
+    Agents must be created externally before passing to the orchestrator.
 
     Args:
-        profile_agent: Pre-initialized Profile Agent (optional)
-        recommender_agent: Pre-initialized Recommender Agent (optional)
-        vector_store: VectorStore instance for RAG queries (optional, used if agents not provided)
-        event_ranker: EventRanker instance for LLM-based ranking (optional, used if agents not provided)
-        storage: ProfileStorage instance for user profiles (optional, used if agents not provided)
-        model_name: Gemini model to use (default: gemini-2.5-flash-exp)
+        profile_agent: Pre-initialized Profile Agent (required)
+        recommender_agent: Pre-initialized Recommender Agent (required)
+        model_name: Gemini model to use for orchestrator (default: gemini-2.5-flash-exp)
 
     Returns:
         Configured ADKOrchestrator instance
 
-    Examples:
-        >>> # Pattern 1: Pass dependencies, orchestrator creates agents internally
-        >>> from rag.vector_store import VectorStore
-        >>> from agents.event_ranker import EventRanker
-        >>> from memory.storage import MemoryStorage
-        >>>
-        >>> orchestrator = create_orchestrator(
-        ...     vector_store=VectorStore(),
-        ...     event_ranker=EventRanker(),
-        ...     storage=MemoryStorage()
-        ... )
-        >>>
-        >>> # Pattern 2: Create agents externally and pass them
+    Example:
         >>> from agents.profile_agent_adk import create_profile_agent
         >>> from agents.recommender_agent_adk import create_recommender_agent
+        >>> from memory.storage import MemoryStorage
+        >>> from rag.vector_store import VectorStore
+        >>> from agents.event_ranker import create_event_ranker
         >>>
-        >>> profile_agent = create_profile_agent(storage=MemoryStorage())
-        >>> recommender_agent = create_recommender_agent(vector_store=VectorStore())
+        >>> # Create dependencies
+        >>> storage = MemoryStorage()
+        >>> vector_store = VectorStore()
+        >>> event_ranker = create_event_ranker()
+        >>>
+        >>> # Create agents
+        >>> profile_agent = create_profile_agent(storage=storage)
+        >>> recommender_agent = create_recommender_agent(
+        ...     vector_store=vector_store,
+        ...     event_ranker=event_ranker
+        ... )
+        >>>
+        >>> # Create orchestrator with agents
         >>> orchestrator = create_orchestrator(
         ...     profile_agent=profile_agent,
         ...     recommender_agent=recommender_agent
@@ -227,8 +191,5 @@ def create_orchestrator(
     return ADKOrchestrator(
         profile_agent=profile_agent,
         recommender_agent=recommender_agent,
-        vector_store=vector_store,
-        event_ranker=event_ranker,
-        storage=storage,
         model_name=model_name,
     )
