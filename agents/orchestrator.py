@@ -13,8 +13,8 @@ Each agent is a separate Gemini model instance that can be called via AgentTool.
 from typing import Optional
 
 from google import genai
+from google.adk.tools import AgentTool
 from google.genai import types
-from google.genai.types import AgentTool
 
 from agents.event_ranker import EventRanker
 from agents.profile_agent_adk import create_profile_agent
@@ -42,7 +42,7 @@ class ADKOrchestrator:
         vector_store: Optional[VectorStore] = None,
         event_ranker: Optional[EventRanker] = None,
         storage: Optional[ProfileStorage] = None,
-        model_name: str = "gemini-2.0-flash-exp",
+        model_name: str = "gemini-2.5-flash-exp",
     ):
         """Initialize the ADK orchestrator.
 
@@ -50,7 +50,7 @@ class ADKOrchestrator:
             vector_store: VectorStore instance for RAG queries (optional)
             event_ranker: EventRanker instance for LLM-based ranking (optional)
             storage: ProfileStorage instance for user profiles (optional)
-            model_name: Gemini model to use (default: gemini-2.0-flash-exp)
+            model_name: Gemini model to use (default: gemini-2.5-flash-exp)
         """
         log_info(
             "adk_orchestrator_initializing",
@@ -110,19 +110,12 @@ class ADKOrchestrator:
         log_info("processing_user_message", user_id=user_id, message=message[:100], session_id=session_id)
 
         try:
-            # Create session context with user_id
-            # The agent will have access to this in tool calls
-            context = {
-                "user_id": user_id,
-                "session_id": session_id or user_id,
-            }
-
-            # Send message to agent
-            # The agent will use tools as needed and generate a response
+            # Send message to agent with user context in system instruction
+            # The agent will use sub-agents as needed and generate a response
             response = self.agent.generate_content(
                 message,
                 config=types.GenerateContentConfig(
-                    system_instruction=f"User ID: {user_id}",
+                    system_instruction=f"User ID: {user_id}. Session ID: {session_id or user_id}.",
                     temperature=0.7,
                 ),
             )

@@ -113,3 +113,40 @@ ERROR_MESSAGES = {
     "no_results": "I couldn't find any events matching your criteria. Would you like me to broaden the search or try different keywords?",
     "profile_load_failed": "I had trouble loading your profile. I'll continue without your preference history for now.",
 }
+
+
+def get_preference_extraction_prompt(query: str) -> str:
+    """Get the prompt for extracting user preferences.
+
+    Args:
+        query: User query text expressing preferences
+
+    Returns:
+        Formatted prompt string for preference extraction
+    """
+    return f"""You are a preference extraction assistant for a cultural events recommender system.
+
+Analyze the following user statement and extract any preferences about:
+- favorite_genres: Art/event genres they LIKE (contemporary art, sculpture, painting, etc.)
+- disliked_genres: Art/event genres they DON'T like
+- favorite_artists: Specific artists they mention favorably
+- location: Location they mention (city, neighborhood)
+
+User statement: "{query}"
+
+Return ONLY a valid JSON object with these fields (use empty lists if nothing found):
+{{
+  "favorite_genres": [],
+  "disliked_genres": [],
+  "favorite_artists": [],
+  "location": null
+}}
+
+Examples:
+Input: "I don't like video art"
+Output: {{"favorite_genres": [], "disliked_genres": ["video art"], "favorite_artists": [], "location": null}}
+
+Input: "I love contemporary sculpture and Picasso"
+Output: {{"favorite_genres": ["contemporary sculpture"], "disliked_genres": [], "favorite_artists": ["Picasso"], "location": null}}
+
+Now analyze the user statement and return only the JSON object:"""

@@ -11,8 +11,6 @@ All tools are stateless and use dependency injection for storage.
 import asyncio
 from typing import Any, Optional
 
-from google.adk import tool
-
 from agents.preference_extractor import PreferenceExtractor, create_preference_extractor
 from memory.storage import MemoryStorage
 from memory.storage_interface import ProfileStorage
@@ -60,7 +58,6 @@ def _get_preference_extractor() -> PreferenceExtractor:
     return _preference_extractor
 
 
-@tool
 def get_profile_tool(user_id: str) -> dict[str, Any]:
     """Load a user's profile including preferences and location.
     
@@ -96,7 +93,6 @@ def get_profile_tool(user_id: str) -> dict[str, Any]:
     return profile.model_dump()
 
 
-@tool
 def update_profile_tool(
     user_id: str,
     favorite_genres: Optional[list[str]] = None,
@@ -157,7 +153,6 @@ def update_profile_tool(
     return profile.model_dump()
 
 
-@tool
 def extract_preferences_tool(user_id: str, text: str) -> dict[str, Any]:
     """Extract and apply user preferences from natural language.
     

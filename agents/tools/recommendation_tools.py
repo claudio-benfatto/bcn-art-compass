@@ -10,8 +10,6 @@ All tools are stateless and use dependency injection for vector store and ranker
 
 from typing import Any, Optional
 
-from google.adk import tool
-
 from agents.event_ranker import EventRanker
 from memory.models import UserProfile
 from observability import log_error, log_info
@@ -55,7 +53,6 @@ def _get_event_ranker() -> Optional[EventRanker]:
     return _event_ranker
 
 
-@tool
 def recommend_events_tool(
     query: str,
     user_id: str,

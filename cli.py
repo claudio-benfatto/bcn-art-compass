@@ -13,13 +13,9 @@ Automatically detects environment and uses either:
 import asyncio
 import sys
 import uuid
-from pathlib import Path
 
 import config
-from agents.orchestrator import OrchestratorAgent
-from agents.profile_agent import ProfileAgent
-from agents.recommender_agent import RecommenderAgent
-from memory.storage import MemoryStorage
+from agents.orchestrator import create_orchestrator
 from observability import log_event
 
 
@@ -57,11 +53,6 @@ def initialize_system():
     # Generate session ID
     session_id = str(uuid.uuid4())
 
-    # Initialize storage
-    storage_dir = Path("storage")
-    storage_dir.mkdir(exist_ok=True)
-    memory_storage = MemoryStorage(str(storage_dir / "profiles.json"))
-
     # Initialize RAG components based on config
     app_config = config.get_config()
     
@@ -96,13 +87,8 @@ def initialize_system():
         except Exception:
             pass  # Continue anyway
 
-    # Initialize agents
-    profile_agent = ProfileAgent(storage=memory_storage)
-    recommender_agent = RecommenderAgent(vector_store=vector_store)
-    orchestrator = OrchestratorAgent(
-        recommender_agent=recommender_agent,
-        profile_agent=profile_agent
-    )
+    # Initialize ADK orchestrator with all dependencies
+    orchestrator = create_orchestrator()
 
     log_event("cli_initialization_complete", session_id=session_id)
     print("✅ System ready!\n")
@@ -170,7 +156,7 @@ async def async_main():
                 )
 
                 # Process query (async)
-                response = await orchestrator.process_query(query=user_input, user_id=user_id)
+                response = await orchestrator.chat_async(user_id=user_id, message=user_input)
 
                 # Display response
                 print_response(response)
