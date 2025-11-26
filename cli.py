@@ -15,7 +15,11 @@ import sys
 import uuid
 
 import config
+from agents.event_ranker import create_event_ranker
 from agents.orchestrator import create_orchestrator
+from agents.profile_agent_adk import create_profile_agent
+from agents.recommender_agent_adk import create_recommender_agent
+from memory.storage import MemoryStorage
 from observability import log_event
 
 
@@ -87,8 +91,28 @@ def initialize_system():
         except Exception:
             pass  # Continue anyway
 
-    # Initialize ADK orchestrator with all dependencies
-    orchestrator = create_orchestrator()
+    # Initialize storage and event ranker
+    storage = MemoryStorage()
+    event_ranker = create_event_ranker()
+
+    # Create specialized agents externally
+    profile_agent = create_profile_agent(
+        storage=storage,
+        model_name="gemini-2.5-flash-exp"
+    )
+    
+    recommender_agent = create_recommender_agent(
+        vector_store=vector_store,
+        event_ranker=event_ranker,
+        model_name="gemini-2.5-flash-exp"
+    )
+
+    # Create orchestrator with pre-initialized agents
+    orchestrator = create_orchestrator(
+        profile_agent=profile_agent,
+        recommender_agent=recommender_agent,
+        model_name="gemini-2.5-flash-exp"
+    )
 
     log_event("cli_initialization_complete", session_id=session_id)
     print("✅ System ready!\n")

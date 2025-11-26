@@ -11,11 +11,18 @@ from typing import AsyncGenerator, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from agents.orchestrator import ADKOrchestrator, create_orchestrator
+from agents.event_ranker import create_event_ranker
+from agents.orchestrator import create_orchestrator
+from agents.profile_agent_adk import create_profile_agent
+from agents.recommender_agent_adk import create_recommender_agent
+from memory.storage import MemoryStorage
 from observability import configure_logging, log_error, log_info, set_correlation_id
+from rag.vector_store import VectorStore
 
-# Global orchestrator instance
-orchestrator: Optional[ADKOrchestrator] = None
+# Global components
+orchestrator = None
+profile_agent = None
+recommender_agent = None
 
 
 class ChatRequest(BaseModel):
@@ -38,16 +45,48 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Lifespan context manager for FastAPI app.
     Handles startup and shutdown events.
     """
-    global orchestrator
+    global orchestrator, profile_agent, recommender_agent
 
     # Startup
     configure_logging()
     log_info("application_started", service="bcn-art-compass-api")
 
-    # Initialize orchestrator with ADK
+    # Initialize components and agents externally
     try:
-        orchestrator = create_orchestrator()
-        log_info("adk_orchestrator_initialized")
+        # Initialize dependencies
+        storage = MemoryStorage()
+        vector_store = VectorStore()  # Uses default settings
+        event_ranker = create_event_ranker()
+
+        log_info(
+            "dependencies_initialized",
+            has_storage=storage is not None,
+            has_vector_store=vector_store is not None,
+            has_event_ranker=event_ranker is not None,
+        )
+
+        # Create specialized agents
+        profile_agent = create_profile_agent(
+            storage=storage,
+            model_name="gemini-2.5-flash-exp"
+        )
+        log_info("profile_agent_initialized")
+
+        recommender_agent = create_recommender_agent(
+            vector_store=vector_store,
+            event_ranker=event_ranker,
+            model_name="gemini-2.5-flash-exp"
+        )
+        log_info("recommender_agent_initialized")
+
+        # Create orchestrator with pre-initialized agents
+        orchestrator = create_orchestrator(
+            profile_agent=profile_agent,
+            recommender_agent=recommender_agent,
+            model_name="gemini-2.5-flash-exp"
+        )
+        log_info("adk_orchestrator_initialized_with_external_agents")
+
     except Exception as e:
         log_error("orchestrator_initialization_failed", error=str(e))
         log_info("api_will_run_with_limited_functionality")
