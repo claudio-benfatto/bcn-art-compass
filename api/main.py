@@ -5,6 +5,7 @@ Minimal FastAPI server with /chat endpoint for interacting with the
 multi-agent cultural events recommender system.
 """
 
+import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Optional
 
@@ -79,13 +80,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
         log_info("recommender_agent_initialized")
 
-        # Create orchestrator with pre-initialized agents
+        # Create orchestrator with pre-initialized agents and session persistence
+        database_url = os.getenv("SESSION_DATABASE_URL", "sqlite:////tmp/sessions.db")
         orchestrator = create_orchestrator(
             profile_agent=profile_agent,
             recommender_agent=recommender_agent,
-            model_name="gemini-2.5-flash-exp"
+            model_name="gemini-2.5-flash-exp",
+            database_url=database_url
         )
-        log_info("adk_orchestrator_initialized_with_external_agents")
+        log_info(
+            "adk_orchestrator_initialized_with_external_agents",
+            session_database=database_url
+        )
 
     except Exception as e:
         log_error("orchestrator_initialization_failed", error=str(e))

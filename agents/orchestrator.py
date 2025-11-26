@@ -14,6 +14,8 @@ from typing import Optional
 
 from google import genai
 from google.adk import Agent
+from google.adk.apps.app import EventsCompactionConfig
+from google.adk.sessions import DatabaseSessionService
 from google.adk.tools import AgentTool
 from google.genai import types
 
@@ -38,6 +40,9 @@ class ADKOrchestrator:
         profile_agent: Agent,
         recommender_agent: Agent,
         model_name: str = "gemini-2.5-flash-exp",
+        database_url: Optional[str] = None,
+        compaction_interval: int = 5,
+        overlap_size: int = 2,
     ):
         """Initialize the ADK orchestrator.
 
@@ -45,12 +50,45 @@ class ADKOrchestrator:
             profile_agent: Pre-initialized Profile Agent (required)
             recommender_agent: Pre-initialized Recommender Agent (required)
             model_name: Gemini model to use for orchestrator (default: gemini-2.5-flash-exp)
+            database_url: Optional database URL for session persistence
+                         (e.g., "sqlite:///sessions.db" or Firestore URL)
+                         If None, uses in-memory storage (not suitable for production)
+            compaction_interval: Number of turns before triggering conversation compaction
+                                (default: 5, helps manage token limits)
+            overlap_size: Number of previous turns to keep for context during compaction
+                         (default: 2, maintains conversation continuity)
         """
         log_info(
             "adk_orchestrator_initializing",
             model=model_name,
             profile_agent_name=profile_agent.name,
             recommender_agent_name=recommender_agent.name,
+            has_database=database_url is not None,
+            compaction_interval=compaction_interval,
+            overlap_size=overlap_size,
+        )
+
+        # Store compaction configuration
+        self._compaction_interval = compaction_interval
+        self._overlap_size = overlap_size
+
+        # Create compaction config for conversation history management
+        compaction_config = EventsCompactionConfig(
+            compaction_interval=compaction_interval,
+            overlap_size=overlap_size,
+        )
+
+        # Initialize session service for persistent conversation history
+        self._session_service = DatabaseSessionService(
+            db_url=database_url or ":memory:",
+            events_compaction_config=compaction_config,
+        )
+        log_info(
+            "session_service_initialized",
+            database_url=database_url or "in-memory",
+            compaction_enabled=True,
+            compaction_interval=compaction_interval,
+            overlap_size=overlap_size,
         )
 
         # Create the orchestrator agent with sub-agents as tools
@@ -74,15 +112,18 @@ class ADKOrchestrator:
         """Process a user message and generate a response.
 
         This method:
-        1. Creates a session context with the user_id
-        2. Sends the message to the ADK agent
-        3. The agent decides which tools to use (if any)
-        4. Returns the agent's natural language response
+        1. Retrieves or creates a session for conversation history
+        2. Adds the user message to the session history
+        3. Sends the message with history to the ADK agent
+        4. The agent decides which tools to use (if any)
+        5. Saves the updated conversation history to the session service
+        6. Returns the agent's natural language response
 
         Args:
             user_id: Unique identifier for the user
             message: User's message text
             session_id: Optional session identifier for conversation continuity
+                       (defaults to user_id if not provided)
 
         Returns:
             Agent's response text
@@ -93,26 +134,59 @@ class ADKOrchestrator:
             >>> print(response)
             "I found 5 great exhibitions for you! ..."
         """
-        log_info("processing_user_message", user_id=user_id, message=message[:100], session_id=session_id)
+        # Use user_id as session_id if not provided
+        session_id = session_id or user_id
+
+        log_info(
+            "processing_user_message",
+            user_id=user_id,
+            message=message[:100],
+            session_id=session_id,
+        )
 
         try:
-            # Send message to agent with user context in system instruction
-            # The agent will use sub-agents as needed and generate a response
+            # Get or create session
+            session = self._session_service.get_or_create_session(session_id)
+            
+            log_info(
+                "session_retrieved",
+                session_id=session_id,
+                history_length=len(session.history) if session.history else 0,
+            )
+
+            # Build conversation history in Gemini format
+            history = []
+            if session.history:
+                for turn in session.history:
+                    history.append(turn)
+
+            # Add current user message
+            history.append({"role": "user", "parts": [message]})
+
+            # Generate response with conversation history
             response = self.agent.generate_content(
-                message,
+                history,
                 config=types.GenerateContentConfig(
-                    system_instruction=f"User ID: {user_id}. Session ID: {session_id or user_id}.",
+                    system_instruction=f"User ID: {user_id}. Session ID: {session_id}.",
                     temperature=0.7,
                 ),
             )
 
             response_text = response.text
 
+            # Add agent response to history
+            history.append({"role": "model", "parts": [response_text]})
+
+            # Save updated session (compaction is handled automatically by EventsCompactionConfig)
+            session.history = history
+            self._session_service.save_session(session)
+
             log_info(
                 "chat_response_generated",
                 user_id=user_id,
                 response_length=len(response_text),
                 session_id=session_id,
+                history_length=len(history),
             )
 
             return response_text
@@ -123,6 +197,7 @@ class ADKOrchestrator:
                 user_id=user_id,
                 error=str(e),
                 error_type=type(e).__name__,
+                session_id=session_id,
             )
             return (
                 "I apologize, but I encountered an error while processing your request. "
@@ -144,11 +219,43 @@ class ADKOrchestrator:
         # TODO: Implement true async when ADK supports it
         return self.chat(user_id, message, session_id)
 
+    def get_session_history(self, session_id: str) -> list:
+        """Get the conversation history for a session.
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            List of conversation turns with role and parts
+        """
+        session = self._session_service.get_session(session_id)
+        return session.history if session and session.history else []
+
+    def clear_session(self, session_id: str) -> None:
+        """Clear the conversation history for a session.
+
+        Args:
+            session_id: Session identifier to clear
+        """
+        self._session_service.delete_session(session_id)
+        log_info("session_cleared", session_id=session_id)
+
+    def get_active_sessions(self) -> list[str]:
+        """Get list of active session IDs.
+
+        Returns:
+            List of session identifiers with conversation history
+        """
+        return self._session_service.list_sessions()
+
 
 def create_orchestrator(
     profile_agent: Agent,
     recommender_agent: Agent,
     model_name: str = "gemini-2.5-flash-exp",
+    database_url: Optional[str] = None,
+    compaction_interval: int = 5,
+    overlap_size: int = 2,
 ) -> ADKOrchestrator:
     """Factory function to create an ADK orchestrator.
 
@@ -159,6 +266,15 @@ def create_orchestrator(
         profile_agent: Pre-initialized Profile Agent (required)
         recommender_agent: Pre-initialized Recommender Agent (required)
         model_name: Gemini model to use for orchestrator (default: gemini-2.5-flash-exp)
+        database_url: Optional database URL for session persistence
+                     Examples:
+                     - "sqlite:///sessions.db" (local SQLite)
+                     - "sqlite:////tmp/sessions.db" (Cloud Run writable path)
+                     - None (in-memory, not suitable for production)
+        compaction_interval: Number of turns before triggering conversation compaction
+                            (default: 5). Prevents unbounded history growth.
+        overlap_size: Number of previous turns to keep during compaction
+                     (default: 2). Maintains conversation context.
 
     Returns:
         Configured ADKOrchestrator instance
@@ -182,14 +298,20 @@ def create_orchestrator(
         ...     event_ranker=event_ranker
         ... )
         >>>
-        >>> # Create orchestrator with agents
+        >>> # Create orchestrator with persistent sessions and compaction
         >>> orchestrator = create_orchestrator(
         ...     profile_agent=profile_agent,
-        ...     recommender_agent=recommender_agent
+        ...     recommender_agent=recommender_agent,
+        ...     database_url="sqlite:///sessions.db",
+        ...     compaction_interval=5,
+        ...     overlap_size=2
         ... )
     """
     return ADKOrchestrator(
         profile_agent=profile_agent,
         recommender_agent=recommender_agent,
         model_name=model_name,
+        database_url=database_url,
+        compaction_interval=compaction_interval,
+        overlap_size=overlap_size,
     )

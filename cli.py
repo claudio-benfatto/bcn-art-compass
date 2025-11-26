@@ -107,11 +107,12 @@ def initialize_system():
         model_name="gemini-2.5-flash-exp"
     )
 
-    # Create orchestrator with pre-initialized agents
+    # Create orchestrator with pre-initialized agents and local session storage
     orchestrator = create_orchestrator(
         profile_agent=profile_agent,
         recommender_agent=recommender_agent,
-        model_name="gemini-2.5-flash-exp"
+        model_name="gemini-2.5-flash-exp",
+        database_url="sqlite:///storage/sessions.db"  # Local SQLite for CLI
     )
 
     log_event("cli_initialization_complete", session_id=session_id)
