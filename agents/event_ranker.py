@@ -235,7 +235,7 @@ class GeminiEventRanker(EventRanker):
         events_context = self._extract_events_context(results, user_coords)
 
         # Build prompt
-        prompt = self._build_ranking_prompt(events_context, profile)
+        prompt = self._build_ranking_prompt(events_context, profile, user_query)
 
         try:
             log_info("calling_llm_for_ranking", num_events=len(results), backend="gemini")
