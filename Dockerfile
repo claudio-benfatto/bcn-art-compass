@@ -10,11 +10,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 # Set working directory
 WORKDIR /app
 
-# Copy minimal cloud requirements (excludes heavy local-only deps)
-COPY requirements-cloud.txt ./requirements.txt
+# Copy pyproject.toml for dependency installation
+COPY pyproject.toml ./
 
-# Install dependencies into a virtual environment
-RUN uv pip install --system -r requirements.txt
+# Install dependencies using uv (syncs from pyproject.toml)
+RUN uv pip install --system .
 
 # Stage 2: Runtime
 FROM python:3.13-slim
