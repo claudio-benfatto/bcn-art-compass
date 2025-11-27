@@ -8,7 +8,7 @@ This agent is a separate LLM specialized in:
 
 from typing import Optional
 
-from google.adk import Agent
+from google import genai
 
 from agents.tools.profile_tools import create_profile_tools
 from memory.storage_interface import ProfileStorage
@@ -70,7 +70,7 @@ Remember: Focus only on profile management. Don't try to recommend events.
 def create_profile_agent(
     storage: Optional[ProfileStorage] = None,
     model_name: str = "gemini-2.0-flash-exp",
-) -> Agent:
+) -> genai.Agent:
     """Create the Profile Agent.
 
     Args:
@@ -88,7 +88,7 @@ def create_profile_agent(
     log_info("creating_profile_agent", model=model_name)
 
     # Create the agent
-    agent = Agent(
+    agent = genai.Agent(
         model=model_name,
         name="profile_agent",
         instructions=PROFILE_AGENT_INSTRUCTIONS,
