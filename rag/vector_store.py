@@ -8,8 +8,14 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-import chromadb
-from chromadb.config import Settings
+try:
+    import chromadb
+    from chromadb.config import Settings
+    CHROMADB_AVAILABLE = True
+except ImportError:
+    CHROMADB_AVAILABLE = False
+    chromadb = None
+    Settings = None
 
 from observability import log_info, log_rag_query
 from rag.embeddings_local import LocalEmbeddingGenerator
@@ -41,6 +47,11 @@ class VectorStore:
             persist_directory: Directory to persist the database. If None, uses ./storage/chroma_db
             embedding_generator: LocalEmbeddingGenerator instance. If None, creates a new one
         """
+        if not CHROMADB_AVAILABLE:
+            raise ImportError(
+                "chromadb is not installed. Install with: uv sync --extra local"
+            )
+        
         self.collection_name = collection_name
 
         # Set up persistence directory
