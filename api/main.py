@@ -51,6 +51,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup
     configure_logging()
     log_info("application_started", service="bcn-art-compass-api")
+    
+    # Check if GOOGLE_API_KEY is available
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        log_error("google_api_key_missing", message="GOOGLE_API_KEY environment variable is not set")
+    else:
+        log_info("google_api_key_found", key_length=len(api_key))
 
     # Initialize components and agents externally
     try:
@@ -102,8 +109,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
 
     except Exception as e:
-        log_error("orchestrator_initialization_failed", error=str(e))
+        log_error(
+            "orchestrator_initialization_failed",
+            error=str(e),
+            error_type=type(e).__name__,
+            traceback=True
+        )
         log_info("api_will_run_with_limited_functionality")
+        import traceback as tb
+        tb.print_exc()  # Print to stderr for Cloud Run logs
 
     yield
 
