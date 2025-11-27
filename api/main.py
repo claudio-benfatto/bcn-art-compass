@@ -56,7 +56,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         # Initialize dependencies
         storage = MemoryStorage()
-        vector_store = VectorStore()  # Uses default settings
+        
+        # Try to initialize vector store (requires chromadb, not available in cloud)
+        vector_store = None
+        try:
+            vector_store = VectorStore()  # Uses default settings
+            log_info("vector_store_initialized")
+        except (ImportError, Exception) as e:
+            log_info("vector_store_unavailable", reason=str(e)[:100])
+        
         event_ranker = create_event_ranker()
 
         log_info(
