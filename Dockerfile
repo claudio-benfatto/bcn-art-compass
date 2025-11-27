@@ -13,8 +13,22 @@ WORKDIR /app
 # Copy pyproject.toml for dependency installation
 COPY pyproject.toml ./
 
-# Install dependencies using uv (syncs from pyproject.toml)
-RUN uv pip install --system .
+# Install dependencies from pyproject.toml (base only, no [local] extras)
+# This excludes heavy packages: chromadb, ollama, sentence-transformers
+RUN uv pip install --system --no-cache-dir \
+    "fastapi>=0.115.0,<0.119.0" \
+    "google-adk>=1.19.0" \
+    "google-cloud-aiplatform>=1.128.0" \
+    "google-cloud-firestore>=2.21.0" \
+    "google-cloud-storage>=3.4.1" \
+    "google-generativeai>=0.8.5" \
+    "httpx>=0.28.1" \
+    "pydantic>=2.12.4" \
+    "pyyaml>=6.0.3" \
+    "requests>=2.32.5" \
+    "structlog>=25.5.0" \
+    "uvicorn>=0.38.0" \
+    "python-dotenv>=1.2.1"
 
 # Stage 2: Runtime
 FROM python:3.13-slim
