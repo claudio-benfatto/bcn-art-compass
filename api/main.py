@@ -7,9 +7,9 @@ multi-agent cultural events recommender system.
 
 import os
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from agents.event_ranker import create_event_ranker
@@ -179,6 +179,71 @@ async def readiness_check() -> dict:
         "version": "0.1.0",
         "components": components,
     }
+
+
+@app.websocket("/ws/chat")
+async def chat_ws(ws: WebSocket):
+    """WebSocket endpoint providing streaming chat responses.
+
+    Client protocol:
+    - Connect and send initial JSON: {"user_id": "u1", "message": "Show me art"}
+    - Receive frames: {type, content, seq, ...}
+    - Optional cancel: send JSON {"command": "cancel"} to stop streaming.
+    """
+    await ws.accept()
+    correlation_id = set_correlation_id()
+    try:
+        init = await ws.receive_json()
+        user_id = init.get("user_id", "default_user")
+        message = init.get("message", "")
+        if not message:
+            await ws.send_json({
+                "type": "error",
+                "content": "Empty message",
+                "seq": 0,
+                "correlation_id": correlation_id,
+            })
+            await ws.close()
+            return
+
+        if orchestrator is None:
+            await ws.send_json({
+                "type": "error",
+                "content": "Orchestrator unavailable",
+                "seq": 0,
+                "correlation_id": correlation_id,
+            })
+            await ws.close()
+            return
+
+        # Stream events from orchestrator
+        async for frame in orchestrator.stream_events(user_id=user_id, message=message):
+            frame["correlation_id"] = correlation_id
+            await ws.send_json(frame)
+            if frame.get("type") == "final":
+                break
+            # Non-blocking check for cancel (optional simple protocol)
+            try:
+                data = await ws.receive_json()
+                if data.get("command") == "cancel":
+                    await ws.send_json({
+                        "type": "info",
+                        "content": "Generation cancelled",
+                        "seq": frame.get("seq", 0) + 1,
+                        "correlation_id": correlation_id,
+                    })
+                    break
+            except WebSocketDisconnect:
+                break
+            except Exception:
+                # Ignore parsing errors / unexpected interim messages
+                pass
+        await ws.close()
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        await ws.send_json({"type": "error", "content": f"{e}", "seq": 0, "correlation_id": correlation_id})
+        await ws.close()
 
 
 @app.post("/chat", response_model=ChatResponse)

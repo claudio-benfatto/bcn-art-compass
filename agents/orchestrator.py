@@ -12,15 +12,68 @@ Each agent is a separate Gemini model instance that can be called via AgentTool.
 
 from typing import Optional
 
-from google import genai
 from google.adk import Agent
 from google.adk.apps.app import EventsCompactionConfig
+from agents.adk_workaround import patch_event_compaction
 from google.adk.sessions import DatabaseSessionService
 from google.adk.tools import AgentTool
 from google.genai import types
 
 from agents.prompts import ORCHESTRATOR_INSTRUCTIONS
 from observability import log_error, log_info
+import json
+
+def summarize_profile_update(payload: dict) -> str:
+    """Create deterministic confirmation text from profile diff payload.
+
+    Expected payload keys: profile, updated. The updated dict may include:
+    favorite_genres_added, favorite_genres_removed, favorite_genres_not_found,
+    disliked_genres_added, disliked_genres_removed, disliked_genres_not_found,
+    favorite_artists_added, favorite_artists_removed, favorite_artists_not_found,
+    location_changed.
+    If no changes: returns 'No profile changes applied.'
+    """
+    try:
+        upd = payload.get("updated", {}) or {}
+        prof = payload.get("profile", {}) or {}
+    except AttributeError:
+        return "No profile changes applied."
+
+    parts: list[str] = []
+
+    def add_segment(label: str, values: list[str], action: str) -> None:
+        if values:
+            joined = ", ".join(values)
+            parts.append(f"{action} {joined} {label}")
+
+    add_segment("to favorite genres", upd.get("favorite_genres_added", []), "Added")
+    add_segment("from favorite genres", upd.get("favorite_genres_removed", []), "Removed")
+    if upd.get("favorite_genres_not_found"):
+        parts.append(
+            f"Not found in favorite genres: {', '.join(upd['favorite_genres_not_found'])}"
+        )
+
+    add_segment("to disliked genres", upd.get("disliked_genres_added", []), "Added")
+    add_segment("from disliked genres", upd.get("disliked_genres_removed", []), "Removed")
+    if upd.get("disliked_genres_not_found"):
+        parts.append(
+            f"Not found in disliked genres: {', '.join(upd['disliked_genres_not_found'])}"
+        )
+
+    add_segment("to favorite artists", upd.get("favorite_artists_added", []), "Added")
+    add_segment("from favorite artists", upd.get("favorite_artists_removed", []), "Removed")
+    if upd.get("favorite_artists_not_found"):
+        parts.append(
+            f"Not found in favorite artists: {', '.join(upd['favorite_artists_not_found'])}"
+        )
+
+    if upd.get("location_changed") and prof.get("location"):
+        parts.append(f"Location set to {prof['location']}")
+
+    if not parts:
+        return "No profile changes applied."
+
+    return ". ".join(parts) + "."
 
 
 class ADKOrchestrator:
@@ -37,12 +90,14 @@ class ADKOrchestrator:
 
     def __init__(
         self,
-        profile_agent: Agent,
-        recommender_agent: Agent,
+        profile_agent: Optional[object],
+        recommender_agent: Optional[object],
         model_name: str = "gemini-2.5-flash-exp",
         database_url: Optional[str] = None,
         compaction_interval: int = 5,
         overlap_size: int = 2,
+        agent: Optional[object] = None,
+        session_service: Optional[object] = None,
     ):
         """Initialize the ADK orchestrator.
 
@@ -61,8 +116,8 @@ class ADKOrchestrator:
         log_info(
             "adk_orchestrator_initializing",
             model=model_name,
-            profile_agent_name=profile_agent.name,
-            recommender_agent_name=recommender_agent.name,
+            profile_agent_name=getattr(profile_agent, "name", None),
+            recommender_agent_name=getattr(recommender_agent, "name", None),
             has_database=database_url is not None,
             compaction_interval=compaction_interval,
             overlap_size=overlap_size,
@@ -78,29 +133,112 @@ class ADKOrchestrator:
             overlap_size=overlap_size,
         )
 
-        # Initialize session service for persistent conversation history
-        self._session_service = DatabaseSessionService(
-            db_url=database_url or ":memory:",
-            events_compaction_config=compaction_config,
-        )
-        log_info(
-            "session_service_initialized",
-            database_url=database_url or "in-memory",
-            compaction_enabled=True,
-            compaction_interval=compaction_interval,
-            overlap_size=overlap_size,
-        )
+        # Allow direct injection of session_service for tests
+        if session_service is not None:
+            self._session_service = session_service
+        elif not database_url or database_url in {":memory:", "memory"} or database_url.startswith("sqlite"):
+            # Always use in-memory session storage for local/dev
+            class _InMemSess:
+                def __init__(self):
+                    self._store: dict[str, "_SessObj"] = {}
 
-        # Create the orchestrator agent with sub-agents as tools
-        self.agent = genai.Agent(
-            model=model_name,
-            name="orchestrator",
-            instructions=ORCHESTRATOR_INSTRUCTIONS,
-            tools=[
-                AgentTool(agent=profile_agent),
-                AgentTool(agent=recommender_agent),
-            ],
-        )
+                def get_or_create_session(self, sid: str):
+                    if sid not in self._store:
+                        self._store[sid] = _SessObj(session_id=sid)
+                    return self._store[sid]
+
+                def get_session(self, sid: str):
+                    return self._store.get(sid)
+
+                def save_session(self, sess):  # noqa: D401
+                    self._store[sess.session_id] = sess
+
+                def delete_session(self, sid: str):
+                    self._store.pop(sid, None)
+
+                def list_sessions(self):
+                    return list(self._store.keys())
+
+            class _SessObj:
+                def __init__(self, session_id: str):
+                    self.session_id = session_id
+                    self.history: list[dict] | None = []
+
+            self._session_service = _InMemSess()
+            log_info(
+                "session_service_initialized",
+                database_url="in-memory-fallback",
+                compaction_enabled=False,
+                compaction_interval=compaction_interval,
+                overlap_size=overlap_size,
+            )
+        elif database_url and (database_url.startswith("firestore") or database_url.startswith("gs://")):
+            # Use Firestore/Cloud Storage with events compaction for Google Cloud
+            self._session_service = DatabaseSessionService(
+                db_url=database_url,
+                events_compaction_config=compaction_config,
+            )
+            log_info(
+                "session_service_initialized",
+                database_url=database_url,
+                compaction_enabled=True,
+                compaction_interval=compaction_interval,
+                overlap_size=overlap_size,
+            )
+        else:
+            # Fallback: always use in-memory for any other local config
+            class _InMemSess:
+                def __init__(self):
+                    self._store: dict[str, "_SessObj"] = {}
+
+                def get_or_create_session(self, sid: str):
+                    if sid not in self._store:
+                        self._store[sid] = _SessObj(session_id=sid)
+                    return self._store[sid]
+
+                def get_session(self, sid: str):
+                    return self._store.get(sid)
+
+                def save_session(self, sess):  # noqa: D401
+                    self._store[sess.session_id] = sess
+
+                def delete_session(self, sid: str):
+                    self._store.pop(sid, None)
+
+                def list_sessions(self):
+                    return list(self._store.keys())
+
+            class _SessObj:
+                def __init__(self, session_id: str):
+                    self.session_id = session_id
+                    self.history: list[dict] | None = []
+
+            self._session_service = _InMemSess()
+            log_info(
+                "session_service_initialized",
+                database_url="in-memory-fallback",
+                compaction_enabled=False,
+                compaction_interval=compaction_interval,
+                overlap_size=overlap_size,
+            )
+
+        # Allow direct injection of agent for tests
+        if agent is not None:
+            self.agent = agent
+        else:
+            self.agent = Agent(
+                model=model_name,
+                name="orchestrator",
+                instruction=ORCHESTRATOR_INSTRUCTIONS,
+                tools=[
+                    AgentTool(agent=profile_agent),
+                    AgentTool(agent=recommender_agent),
+                ],
+            )
+
+        # TODO (Phase 3): Replace manual contents + model_client.generate_content with
+        # idiomatic Agent.run_async streaming once InvocationContext helpers are
+        # exposed in current google-adk build for this project.
 
         log_info(
             "adk_orchestrator_initialized",
@@ -154,31 +292,97 @@ class ADKOrchestrator:
                 history_length=len(session.history) if session.history else 0,
             )
 
-            # Build conversation history in Gemini format
-            history = []
-            if session.history:
-                for turn in session.history:
-                    history.append(turn)
+            # Build messages for unified handling (sync path attempts streaming).
+            messages = self._build_messages(session, message)
 
-            # Add current user message
-            history.append({"role": "user", "parts": [message]})
+            response_text: Optional[str] = None
+            run_method = getattr(self.agent, "run_async", None)
+            if run_method is not None:
+                # Attempt to execute async streaming in a temporary event loop.
+                import asyncio
 
-            # Generate response with conversation history
-            response = self.agent.generate_content(
-                history,
-                config=types.GenerateContentConfig(
-                    system_instruction=f"User ID: {user_id}. Session ID: {session_id}.",
-                    temperature=0.7,
-                ),
-            )
+                async def collect_stream():
+                    final: Optional[str] = None
+                    confirmation_text: Optional[str] = None
+                    async for event in run_method(message):
+                        if isinstance(event, str):
+                            log_info("adk_bug_skipped_string_event", event_value=repr(event))
+                            continue
+                        etype = getattr(event, "type", None)
+                        compaction = patch_event_compaction(event)
+                        if etype in {"tool_call", "tool_result", "tool_error"}:
+                            tool_name = getattr(event, "tool_name", None) or getattr(event, "name", "unknown_tool")
+                            status = "error" if etype == "tool_error" else "ok"
+                            if not session.history:
+                                session.history = []
+                            raw_payload = None
+                            if etype == "tool_result":
+                                for attr in ("output", "response", "result", "data"):
+                                    raw_payload = getattr(event, attr, None)
+                                    if raw_payload:
+                                        break
+                                if isinstance(raw_payload, dict) and {"profile", "updated"}.issubset(raw_payload.keys()):
+                                    confirmation_text = summarize_profile_update(raw_payload)
+                                    log_info(
+                                        "profile_update_confirmed",
+                                        user_id=user_id,
+                                        confirmation=confirmation_text,
+                                        favorite_genres_added=len(raw_payload["updated"].get("favorite_genres_added", [])),
+                                        favorite_genres_removed=len(raw_payload["updated"].get("favorite_genres_removed", [])),
+                                    )
+                                    session.history.append({"role": "tool", "content": json.dumps(raw_payload)})
+                                    continue
+                            session.history.append({"role": "tool", "content": f"{tool_name}:{status}"})
+                            continue
+                        candidate = (
+                            getattr(event, "text", None)
+                            or getattr(event, "content", None)
+                            or (
+                                " ".join(getattr(event, "parts", []))
+                                if getattr(event, "parts", None)
+                                else None
+                            )
+                        )
+                        if candidate and etype in {"response", "ai_response", "final"}:
+                            if (
+                                confirmation_text
+                                and not message.strip().lower().startswith("show")
+                                and not message.strip().lower().startswith("recommend")
+                            ):
+                                final = confirmation_text
+                            else:
+                                final = f"{confirmation_text} {candidate}" if confirmation_text else candidate
+                    return final
 
-            response_text = response.text
+                try:
+                    response_text = asyncio.run(collect_stream())
+                except RuntimeError:
+                    log_info("sync_run_async_runtime_error_fallback_model")
 
-            # Add agent response to history
-            history.append({"role": "model", "parts": [response_text]})
+            if response_text is None:
+                # Fallback: direct model generation (legacy path)
+                model_client = getattr(self.agent, "model", None)
+                if model_client is None:
+                    raise RuntimeError("ADK Agent has no underlying model client exposed.")
+                legacy_contents = []
+                for m in messages:
+                    legacy_contents.append({"role": m["role"], "parts": [m["content"]]})
+                response_obj = model_client.generate_content(
+                    legacy_contents,
+                    config=types.GenerateContentConfig(
+                        system_instruction=f"User ID: {user_id}. Session ID: {session_id}.",
+                        temperature=0.7,
+                    ),
+                )
+                response_text = response_obj.text
 
-            # Save updated session (compaction is handled automatically by EventsCompactionConfig)
-            session.history = history
+            # Append model response to history in simplified event format
+            if not session.history:
+                session.history = []
+            session.history.append({"role": "user", "content": message})
+            session.history.append({"role": "model", "content": response_text})
+
+            # Persist updated session
             self._session_service.save_session(session)
 
             log_info(
@@ -186,7 +390,7 @@ class ADKOrchestrator:
                 user_id=user_id,
                 response_length=len(response_text),
                 session_id=session_id,
-                history_length=len(history),
+                history_length=len(session.history),
             )
 
             return response_text
@@ -204,20 +408,145 @@ class ADKOrchestrator:
                 "Please try again or rephrase your question."
             )
 
+    # --- Internal helpers (MVP scope) -------------------------------------------------
+    def _build_messages(self, session, new_user_message: str) -> list[dict]:
+        """Build messages list (role/content) from session history + new user message.
+
+        History stored as simplified events: {role, content}.
+        Returns list of dicts suitable for passing to run_async.
+        """
+        messages: list[dict] = []
+        if session and session.history:
+            for turn in session.history:
+                role = turn.get("role")
+                text = turn.get("content") or (turn.get("parts") or [""])[0]
+                if role and text is not None:
+                    messages.append({"role": role, "content": text})
+        messages.append({"role": "user", "content": new_user_message})
+        return messages
+
+    def _sync_fallback(self, user_id: str, message: str, session_id: str) -> str:
+        """Dedicated fallback path invoking existing sync chat implementation."""
+        return self.chat(user_id=user_id, message=message, session_id=session_id)
+
     async def chat_async(self, user_id: str, message: str, session_id: Optional[str] = None) -> str:
-        """Async version of chat for use in async contexts.
+        """Async version of chat using Agent.run_async when available.
+
+        This implementation attempts to use the ADK agent's event streaming via
+        `run_async` (if present). If any error occurs or the method is missing,
+        it falls back to the synchronous `chat` implementation.
+
+        Event Handling Strategy (MVP):
+        - Collect user + prior turns into a simple message list (role/content)
+        - Stream events; capture the last textual response event (preferring
+          `event.text`, else `event.content`, else concatenated parts)
+        - Persist only the final model response and the user message in session
+        - Tool invocation / intermediate events are ignored for history (can be
+          added in future phases for richer traceability)
 
         Args:
             user_id: Unique identifier for the user
             message: User's message text
-            session_id: Optional session identifier for conversation continuity
+            session_id: Optional session identifier (defaults to user_id)
 
         Returns:
             Agent's response text
         """
-        # For now, just call the sync version
-        # TODO: Implement true async when ADK supports it
-        return self.chat(user_id, message, session_id)
+        session_id = session_id or user_id
+
+        log_info(
+            "processing_user_message_async",
+            user_id=user_id,
+            message=message[:100],
+            session_id=session_id,
+        )
+
+        # Attempt run_async path
+        run_method = getattr(self.agent, "run_async", None)
+        if run_method is None:
+            log_info("run_async_not_available_fallback_sync")
+            return self._sync_fallback(user_id, message, session_id)
+
+        try:
+            session = self._session_service.get_or_create_session(session_id)
+            messages = self._build_messages(session, message)
+
+            # (Second event loop: also skip string events)
+            final_text: Optional[str] = None
+            confirmation_text: Optional[str] = None
+            async for event in run_method(message):
+                try:
+                    if isinstance(event, str):
+                        log_info("adk_bug_skipped_string_event", event_value=repr(event))
+                        continue
+                    etype = getattr(event, "type", None)
+                    compaction = patch_event_compaction(event)
+                    candidate = (
+                        getattr(event, "text", None)
+                        or getattr(event, "content", None)
+                        or (
+                            " ".join(getattr(event, "parts", []))
+                            if getattr(event, "parts", None)
+                            else None
+                        )
+                    )
+                    if candidate and etype in {"response", "ai_response", "final"}:
+                        if (
+                            confirmation_text
+                            and not message.strip().lower().startswith("show")
+                            and not message.strip().lower().startswith("recommend")
+                        ):
+                            final_text = confirmation_text
+                        else:
+                            final_text = f"{confirmation_text} {candidate}" if confirmation_text else candidate
+                except AttributeError as err:
+                    log_error(
+                        "chat_async_event_attribute_error",
+                        user_id=user_id,
+                        error=str(err),
+                        event_type=str(type(event)),
+                        event_value=repr(event),
+                        session_id=session_id,
+                    )
+                    if "model_copy" in str(err) and isinstance(event, str):
+                        return (
+                            "I apologize, but an internal error occurred in the agent framework. "
+                            "Please report this bug to the maintainers."
+                        )
+                    continue
+
+            if not final_text:
+                log_info("run_async_missing_final_text_fallback_sync")
+                return self._sync_fallback(user_id, message, session_id)
+
+            if not session.history:
+                session.history = []
+            session.history.append({"role": "user", "content": message})
+            session.history.append({"role": "model", "content": final_text})
+            self._session_service.save_session(session)
+
+            log_info(
+                "chat_async_response_generated",
+                user_id=user_id,
+                response_length=len(final_text),
+                session_id=session_id,
+                history_length=len(session.history),
+            )
+
+            return final_text
+        except Exception as e:
+            log_error(
+                "chat_async_error",
+                user_id=user_id,
+                error=str(e),
+                error_type=type(e).__name__,
+                session_id=session_id,
+            )
+            # Instead of raising, return a user-friendly error
+            return (
+                "I apologize, but I encountered an error while processing your request. "
+                "Please try again or rephrase your question."
+            )
 
     def get_session_history(self, session_id: str) -> list:
         """Get the conversation history for a session.
@@ -247,6 +576,138 @@ class ADKOrchestrator:
             List of session identifiers with conversation history
         """
         return self._session_service.list_sessions()
+
+    # --- Streaming interface ---------------------------------------------------------
+    async def stream_events(
+        self,
+        user_id: str,
+        message: str,
+        session_id: Optional[str] = None,
+    ):
+        """Async generator yielding structured event frames for WebSocket/SSE.
+
+        Frame schema (dict):
+        {
+          'type': 'token'|'tool'|'final'|'error'|'info',
+          'content': str | None,
+          'tool': optional tool name,
+          'status': optional status ('ok'|'error'|'started'),
+          'seq': incremental integer
+        }
+
+        Notes:
+        - Falls back to single final frame if run_async unavailable.
+        - Tool events mapped to lightweight traces.
+        - Tokens: if the ADK event exposes partial text via 'text' and type not final, emit as 'token'.
+        - History persistence occurs after final frame emission.
+        """
+        session_id = session_id or user_id
+        seq = 0
+        try:
+            session = self._session_service.get_or_create_session(session_id)
+            messages = self._build_messages(session, message)
+            run_method = getattr(self.agent, "run_async", None)
+            if run_method is None:
+                # Fallback: produce final only
+                final_text = self.chat(user_id=user_id, message=message, session_id=session_id)
+                yield {
+                    "type": "final",
+                    "content": final_text,
+                    "seq": seq,
+                }
+                return
+
+            final_text: Optional[str] = None
+            confirmation_text: Optional[str] = None
+            async for event in run_method(message):
+                etype = getattr(event, "type", None)
+                # ADK bug workaround: patch compaction if present
+                compaction = patch_event_compaction(event)
+                candidate = (
+                    getattr(event, "text", None)
+                    or getattr(event, "content", None)
+                    or (
+                        " ".join(getattr(event, "parts", []))
+                        if getattr(event, "parts", None)
+                        else None
+                    )
+                )
+                if etype in {"tool_call"}:
+                    tool_name = getattr(event, "tool_name", None) or getattr(event, "name", "unknown_tool")
+                    yield {
+                        "type": "tool",
+                        "tool": tool_name,
+                        "status": "started",
+                        "content": None,
+                        "seq": seq,
+                    }
+                    seq += 1
+                    continue
+                if etype in {"tool_result"}:
+                    tool_name = getattr(event, "tool_name", None) or getattr(event, "name", "unknown_tool")
+                    # Attempt diff extraction for confirmation frame
+                    raw_payload = None
+                    for attr in ("output", "response", "result", "data"):
+                        raw_payload = getattr(event, attr, None)
+                        if raw_payload:
+                            break
+                    if isinstance(raw_payload, dict) and {"profile", "updated"}.issubset(raw_payload.keys()):
+                        confirmation_text = summarize_profile_update(raw_payload)
+                        yield {
+                            "type": "confirmation",
+                            "content": confirmation_text,
+                            "seq": seq,
+                        }
+                        seq += 1
+                    yield {
+                        "type": "tool",
+                        "tool": tool_name,
+                        "status": "ok",
+                        "content": None,
+                        "seq": seq,
+                    }
+                    seq += 1
+                    continue
+                if etype in {"tool_error"}:
+                    tool_name = getattr(event, "tool_name", None) or getattr(event, "name", "unknown_tool")
+                    yield {
+                        "type": "tool",
+                        "tool": tool_name,
+                        "status": "error",
+                        "content": None,
+                        "seq": seq,
+                    }
+                    seq += 1
+                    continue
+                if candidate and etype not in {"final", "response", "ai_response"}:
+                    # Treat as incremental token chunk
+                    yield {"type": "token", "content": candidate, "seq": seq}
+                    seq += 1
+                if candidate and etype in {"response", "ai_response", "final"}:
+                    if (
+                        confirmation_text
+                        and not message.strip().lower().startswith("show")
+                        and not message.strip().lower().startswith("recommend")
+                    ):
+                        final_text = confirmation_text
+                    else:
+                        final_text = f"{confirmation_text} {candidate}" if confirmation_text else candidate
+            # Emit final frame
+            if final_text is None:
+                final_text = "(no response)"
+            # Persist history
+            if not session.history:
+                session.history = []
+            session.history.append({"role": "user", "content": message})
+            session.history.append({"role": "model", "content": final_text})
+            self._session_service.save_session(session)
+            yield {"type": "final", "content": final_text, "seq": seq}
+        except Exception as e:
+            yield {
+                "type": "error",
+                "content": f"Streaming error: {e}",
+                "seq": seq,
+            }
 
 
 def create_orchestrator(

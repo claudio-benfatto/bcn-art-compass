@@ -8,7 +8,7 @@ This agent is a separate LLM specialized in:
 
 from typing import Optional
 
-from google import genai
+from google.adk import Agent
 
 from agents.event_ranker import EventRanker
 from agents.tools.distance_tools import (
@@ -138,7 +138,7 @@ def create_recommender_agent(
     vector_store: Optional[VectorStore] = None,
     event_ranker: Optional[EventRanker] = None,
     model_name: str = "gemini-2.0-flash-exp",
-) -> genai.Agent:
+) -> Agent:
     """Create the Recommender Agent.
 
     Args:
@@ -162,11 +162,11 @@ def create_recommender_agent(
         has_ranker=event_ranker is not None,
     )
 
-    # Create the agent
-    agent = genai.Agent(
+    # Create the ADK agent.
+    agent = Agent(
         model=model_name,
         name="recommender_agent",
-        instructions=RECOMMENDER_AGENT_INSTRUCTIONS,
+        instruction=RECOMMENDER_AGENT_INSTRUCTIONS,
         tools=[
             recommend_events_tool,
             calculate_distances_tool,

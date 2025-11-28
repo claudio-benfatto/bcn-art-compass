@@ -77,6 +77,101 @@ graph TD
 
 **🎉 MVP COMPLETE - Production Ready!**
 
+### ⚡ Async Streaming (run_async) Overview
+
+The orchestrator now supports an experimental async path using `Agent.run_async`.
+
+Key points:
+- Falls back automatically to sync generation if `run_async` is unavailable or errors.
+- Streams events; captures final response from `response|ai_response|final` event types.
+- Lightweight tool tracing: tool call/result/error events appended as `tool:<name>:ok|error` entries in session history.
+- Session history remains minimal (user + model + tool traces) to control token growth.
+- Future improvement: persist full tool outputs and intermediate reasoning events.
+
+Usage (API already async aware):
+```python
+resp = await orchestrator.chat_async(user_id="u123", message="Recommend exhibitions near Poblenou")
+```
+
+If streaming is unsupported, the system transparently returns the sync response:
+```python
+resp = orchestrator.chat("u123", "Recommend exhibitions")  # sync fallback
+```
+
+Testing:
+```bash
+uv run pytest tests/test_orchestrator_run_async.py -v
+```
+
+Design constraints (MVP):
+- No buffering of partial tokens (only final response captured)
+- Tool outputs summarized (name + status) for transparency
+- Shared message builder `_build_messages` ensures consistency between sync and async paths
+- Dedicated `_sync_fallback` isolates fallback logic
+
+Planned next steps:
+- Stream partial tokens to client websockets
+- Persist structured event log for observability and replay
+- Rich tool result embedding into final answer synthesis
+
+### 🌐 Real-Time WebSocket Streaming
+
+The API exposes a WebSocket endpoint at `/ws/chat` for incremental delivery of tool and model events.
+
+Client handshake:
+1. Connect: `wss://<host>/ws/chat`
+2. Send JSON: `{"user_id": "demo", "message": "Show me sculpture exhibitions near Raval"}`
+3. Receive frames until `type = "final"` (or send `{"command":"cancel"}` to abort).
+
+Frame schema:
+```jsonc
+{ "type": "token" | "tool" | "final" | "error" | "info",
+  "content": "partial text or final answer",   // null for tool frames
+  "tool": "event_search",                      // only for tool frames
+  "status": "started" | "ok" | "error",     // tool state
+  "seq": 7,                                     // monotonically increasing
+  "correlation_id": "<uuid>" }                // tracing id
+```
+
+Example Python client:
+```python
+import asyncio, json, websockets
+
+async def main():
+  async with websockets.connect("ws://localhost:8000/ws/chat") as ws:
+    await ws.send(json.dumps({"user_id": "demo", "message": "Recommend contemporary sculpture"}))
+    async for msg in ws:
+      frame = json.loads(msg)
+      if frame["type"] == "tool":
+        print("[tool]", frame["tool"], frame["status"])
+      elif frame["type"] == "token":
+        print(frame["content"], end="", flush=True)
+      elif frame["type"] == "final":
+        print("\nFinal:", frame["content"])
+        break
+asyncio.run(main())
+```
+
+Cancellation:
+```json
+{"command": "cancel"}
+```
+
+Fallback behavior:
+- If streaming unavailable internally, endpoint emits a single `final` frame.
+- Errors produce an `error` frame then close.
+
+Testing:
+```bash
+uv run pytest tests/test_ws_streaming.py -v
+```
+
+Future enhancements:
+- SSE endpoint for environments where WebSocket is blocked
+- Emit latency metrics per tool frame
+- Stream structured preference updates mid-session
+
+
 ## ✨ Features
 
 ### Core Capabilities

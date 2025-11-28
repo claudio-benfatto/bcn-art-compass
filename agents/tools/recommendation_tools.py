@@ -50,17 +50,29 @@ def create_recommendation_tools(
         user_id: str,
         user_profile: Optional[dict[str, Any]] = None,
         k: int = 5,
-    ) -> list[dict[str, Any]]:
-        """Search and recommend cultural events based on user query and preferences.
+    ) -> dict[str, Any]:
+        """Search and recommend cultural events returning structured envelope.
 
-        This tool performs semantic search over a database of cultural events (exhibitions,
-        performances, galleries) and ranks them based on:
-        - Semantic similarity to the user's query
-        - User's stated preferences (favorite/disliked genres, artists)
-        - Geographic proximity to the user's location
-        - LLM-based contextual ranking
+        Performs semantic search + optional LLM ranking and returns:
+        {
+          "query": <str>,
+          "profile_used": <bool>,
+          "ranking_strategy": "llm"|"rag",
+          "ranking_fallback": <bool>,
+          "events": [
+             {
+               "event_id": ..., "title": ..., "venue_name": ...,
+               "description": ..., "genres": [...],
+               "start_date": ..., "end_date": ..., "cost_range": ..., "url": ...,
+               "score": <float>,
+               "distance_km": <float|None>,
+               "distance_category": <str|None>,
+               "reasoning": <str>
+             }, ...
+          ]
+        }
 
-        The tool will return an empty list if the vector store is not available.
+        Returns empty envelope with events=[] if vector store unavailable.
 
         Args:
             query: User's natural language search query (e.g., "contemporary art exhibitions")
@@ -73,17 +85,7 @@ def create_recommendation_tools(
             k: Number of recommendations to return (default: 5)
 
         Returns:
-            List of dictionaries, each representing a recommended event with fields:
-            - title: Event title
-            - venue_name: Venue where the event takes place
-            - description: Event description
-            - start_date: Event start date
-            - end_date: Event end date (optional)
-            - genres: List of genres/tags
-            - price: Price information
-            - url: Link to event details
-            - score: Relevance score (0.0-1.0)
-            - reasoning: Why this event was recommended (if LLM ranking enabled)
+            Envelope dict as described above.
 
         Example:
             >>> events = recommend_events_tool(
@@ -109,7 +111,13 @@ def create_recommendation_tools(
                 "vector_store_not_available_in_tool",
                 message="Cannot generate recommendations without vector store",
             )
-            return []
+            return {
+                "query": query,
+                "profile_used": user_profile is not None,
+                "ranking_strategy": "none",
+                "ranking_fallback": False,
+                "events": [],
+            }
 
         # Convert user_profile dict to UserProfile object if provided
         profile_obj = None
@@ -132,11 +140,28 @@ def create_recommendation_tools(
         )
 
         # Apply LLM-based ranking if ranker is available and we have a profile
+        ranking_strategy = "rag"
+        ranking_fallback = False
         if profile_obj and event_ranker:
             log_info("applying_llm_ranking_in_tool", num_results=len(results))
-            results = event_ranker.rank_events(results, profile_obj, user_query=query)
+            before_titles = [r.title for r in results]
+            try:
+                results = event_ranker.rank_events(results, profile_obj, user_query=query)
+                ranking_strategy = "llm"
+                after_titles = [r.title for r in results]
+                if before_titles == after_titles:
+                    # If identical order, consider fallback (LLM may have failed silently)
+                    ranking_fallback = True
+            except Exception as e:
+                log_error(
+                    "llm_ranking_exception_in_tool",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                results.sort(key=lambda x: getattr(x, "score", 0.0), reverse=True)
+                ranking_strategy = "rag"
+                ranking_fallback = True
         else:
-            # No profile or ranker, sort by RAG score
             results.sort(key=lambda x: getattr(x, "score", 0.0), reverse=True)
 
         log_info(
@@ -146,24 +171,100 @@ def create_recommendation_tools(
         )
 
         # Convert results to dicts for ADK serialization
+        # Distance & reasoning builder
+        def _distance_category(d: Optional[float]) -> Optional[str]:
+            if d is None:
+                return None
+            if d < 1:
+                return "nearby"
+            if d < 3:
+                return "walkable"
+            if d < 10:
+                return "transit"
+            return "far"
+
+        # Geocode user location if available for distance calculations
+        user_coords = None
+        if profile_obj and profile_obj.location:
+            try:
+                from tools.geocoder import geocoder_tool
+                user_coords = geocoder_tool.geocode(profile_obj.location)
+            except Exception as e:
+                log_error(
+                    "geocode_failed_in_recommend_tool",
+                    error=str(e),
+                    location=profile_obj.location,
+                )
+                user_coords = None
+
+        favorite_genres_set = set(g.lower() for g in (profile_obj.favorite_genres if profile_obj else []))
+        disliked_genres_set = set(g.lower() for g in (profile_obj.disliked_genres if profile_obj else []))
+        favorite_artists_set = set(a.lower() for a in (profile_obj.favorite_artists if profile_obj else []))
+
         result_dicts = []
         for result in results:
-            if hasattr(result, "model_dump"):
-                result_dicts.append(result.model_dump())
-            elif hasattr(result, "dict"):
-                result_dicts.append(result.dict())
-            elif isinstance(result, dict):
-                result_dicts.append(result)
-            else:
-                # Fallback: try to extract common attributes
-                result_dict = {
-                    "title": getattr(result, "title", "Unknown"),
-                    "venue_name": getattr(result, "venue_name", "Unknown"),
-                    "description": getattr(result, "description", ""),
-                    "score": getattr(result, "score", 0.0),
-                }
-                result_dicts.append(result_dict)
+            # Raw base dict
+            base = result.model_dump() if hasattr(result, "model_dump") else (
+                result.dict() if hasattr(result, "dict") else {}
+            )
 
-        return result_dicts
+            # Compute distance if coords available
+            distance_km = None
+            if user_coords and getattr(result, "venue_latitude", None) and getattr(result, "venue_longitude", None):
+                try:
+                    from tools.geocoder import geocoder_tool
+                    distance_km = geocoder_tool.calculate_distance(
+                        user_coords["lat"],
+                        user_coords["lon"],
+                        result.venue_latitude,
+                        result.venue_longitude,
+                    )
+                except Exception as e:
+                    log_error(
+                        "distance_calc_failed",
+                        error=str(e),
+                        event_id=getattr(result, "event_id", "unknown"),
+                    )
+                    distance_km = None
+
+            dist_cat = _distance_category(distance_km)
+
+            # Reasoning builder
+            reasoning_parts = []
+            genres_lower = [g.lower() for g in getattr(result, "genres", [])]
+            fav_matches = [g for g in genres_lower if g in favorite_genres_set]
+            if fav_matches:
+                reasoning_parts.append(f"matches favorite genre(s): {', '.join(fav_matches[:3])}")
+            dis_matches = [g for g in genres_lower if g in disliked_genres_set]
+            if dis_matches:
+                reasoning_parts.append(f"avoids disliked genres except: {', '.join(dis_matches[:2])}")
+            # Artists (if model has artists attr)
+            artists = getattr(result, "artists", []) or []
+            artist_matches = [a for a in artists if a.lower() in favorite_artists_set]
+            if artist_matches:
+                reasoning_parts.append(f"features favorite artist(s): {', '.join(artist_matches[:2])}")
+                if dist_cat:
+                    if distance_km is not None:
+                        reasoning_parts.append(f"{dist_cat} ({round(distance_km, 2)} km)")
+                    else:
+                        reasoning_parts.append(dist_cat)
+            reasoning_parts.append(f"semantic score {round(getattr(result,'score',0.0),3)}")
+            reasoning = "; ".join(reasoning_parts)
+
+            enriched = {
+                **base,
+                "distance_km": distance_km,
+                "distance_category": dist_cat,
+                "reasoning": reasoning,
+            }
+            result_dicts.append(enriched)
+
+        return {
+            "query": query,
+            "profile_used": profile_obj is not None,
+            "ranking_strategy": ranking_strategy,
+            "ranking_fallback": ranking_fallback,
+            "events": result_dicts,
+        }
 
     return recommend_events_tool

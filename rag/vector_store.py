@@ -121,6 +121,9 @@ class VectorStore:
                     "end_date": str(ewv.event.end_date),
                     "cost_range": ewv.event.cost_range,
                     "url": ewv.event.url,
+                    # Added lat/lon for downstream distance calculation & reasoning.
+                    "venue_latitude": getattr(ewv.venue, "latitude", None),
+                    "venue_longitude": getattr(ewv.venue, "longitude", None),
                 }
             )
 
@@ -202,6 +205,8 @@ class VectorStore:
                         cost_range=metadata["cost_range"],
                         score=final_score,
                         url=metadata["url"],
+                        venue_latitude=metadata.get("venue_latitude"),
+                        venue_longitude=metadata.get("venue_longitude"),
                     )
                 )
 
