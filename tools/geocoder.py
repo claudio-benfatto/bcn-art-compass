@@ -21,6 +21,7 @@ class GeocoderTool:
     # Mock database of Barcelona locations
     LOCATIONS = {
         "barcelona": {"lat": 41.3851, "lon": 2.1734, "name": "Barcelona, Spain"},
+        # Neighborhoods
         "gràcia": {"lat": 41.4036, "lon": 2.1574, "name": "Gràcia, Barcelona"},
         "gracia": {"lat": 41.4036, "lon": 2.1574, "name": "Gràcia, Barcelona"},
         "eixample": {"lat": 41.3888, "lon": 2.1590, "name": "Eixample, Barcelona"},
@@ -32,6 +33,8 @@ class GeocoderTool:
         "montjuïc": {"lat": 41.3641, "lon": 2.1659, "name": "Montjuïc, Barcelona"},
         "montjuic": {"lat": 41.3641, "lon": 2.1659, "name": "Montjuïc, Barcelona"},
         "poble sec": {"lat": 41.3723, "lon": 2.1646, "name": "Poble Sec, Barcelona"},
+        "poblenou": {"lat": 41.3978, "lon": 2.1977, "name": "Poblenou, Barcelona"},
+        "sant martí": {"lat": 41.4143, "lon": 2.1978, "name": "Sant Martí, Barcelona"},
         # Museums and venues
         "macba": {"lat": 41.3830, "lon": 2.1667, "name": "MACBA (Contemporary Art Museum)"},
         "picasso museum": {"lat": 41.3851, "lon": 2.1806, "name": "Picasso Museum"},
@@ -39,6 +42,20 @@ class GeocoderTool:
         "miro": {"lat": 41.3688, "lon": 2.1598, "name": "Fundació Joan Miró"},
         "caixaforum": {"lat": 41.3710, "lon": 2.1504, "name": "CaixaForum Barcelona"},
         "palau de la musica": {"lat": 41.3876, "lon": 2.1753, "name": "Palau de la Música Catalana"},
+        # Metro stations (common reference points)
+        "metro maragall": {"lat": 41.4204, "lon": 2.1738, "name": "Metro Maragall (L4/L5)"},
+        "maragall": {"lat": 41.4204, "lon": 2.1738, "name": "Metro Maragall (L4/L5)"},
+        "metro sagrada familia": {"lat": 41.4036, "lon": 2.1744, "name": "Metro Sagrada Família (L2/L5)"},
+        "sagrada familia": {"lat": 41.4036, "lon": 2.1744, "name": "Metro Sagrada Família (L2/L5)"},
+        "metro liceu": {"lat": 41.3798, "lon": 2.1735, "name": "Metro Liceu (L3)"},
+        "liceu": {"lat": 41.3798, "lon": 2.1735, "name": "Metro Liceu (L3)"},
+        "metro passeig de gracia": {"lat": 41.3916, "lon": 2.1649, "name": "Metro Passeig de Gràcia (L2/L3/L4)"},
+        "passeig de gracia": {"lat": 41.3916, "lon": 2.1649, "name": "Passeig de Gràcia"},
+        "metro diagonal": {"lat": 41.3974, "lon": 2.1533, "name": "Metro Diagonal (L3/L5)"},
+        "diagonal": {"lat": 41.3974, "lon": 2.1533, "name": "Diagonal"},
+        "metro glòries": {"lat": 41.4048, "lon": 2.1888, "name": "Metro Glòries (L1)"},
+        "glories": {"lat": 41.4048, "lon": 2.1888, "name": "Glòries"},
+        "metro poblenou": {"lat": 41.4031, "lon": 2.2009, "name": "Metro Poblenou (L4)"},
     }
 
     def __init__(self):
