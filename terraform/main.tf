@@ -66,7 +66,8 @@ resource "google_storage_bucket" "vertex_embeddings" {
 
 # Upload embeddings to GCS (if file exists locally)
 # Note: This requires embeddings to be generated first
-# Use scripts/update-embeddings.sh for updates without Terraform
+# IMPORTANT: After initial creation, use scripts/update-embeddings.sh to update embeddings
+# Terraform will not manage embeddings updates to avoid drift and unnecessary rebuilds
 resource "google_storage_bucket_object" "embeddings" {
   count = fileexists("${path.module}/../generated/vertex_embeddings.jsonl") ? 1 : 0
 
@@ -75,12 +76,11 @@ resource "google_storage_bucket_object" "embeddings" {
   source = "${path.module}/../generated/vertex_embeddings.jsonl"
 
   depends_on = [google_storage_bucket.vertex_embeddings]
-  # Ignore changes made outside Terraform (e.g., via update-embeddings.sh)
+  
+  # Ignore ALL changes to this resource after creation
+  # Use scripts/vertex/update_vertex_index.sh for updates
   lifecycle {
-    ignore_changes = [
-      source,
-      detect_md5hash,
-    ]
+    ignore_changes = all
   }
 }
 

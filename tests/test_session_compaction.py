@@ -1,52 +1,60 @@
 """Test session management and conversation history compaction."""
 
-import pytest
+import asyncio
+from types import SimpleNamespace
 
+import pytest
 
 from agents.orchestrator import ADKOrchestrator
 
-class DummyAgent:
-    def __init__(self):
-        self.name = "dummy"
-        self.description = "dummy agent"
-        self.model = self
-    def generate_content(self, messages, config=None):
-        class R:
-            text = "dummy response"
-        return R()
-    async def run_async(self, messages=None, config=None, **kwargs):
-        # Simulate async generator for streaming
-        class Event:
-            def __init__(self, text):
-                self.text = text
-                self.event_type = "content"
-        yield Event("dummy async response")
+
+class FakeRunner:
+    """Minimal fake Runner used to test session history/compaction without real ADK calls."""
+
+    def __init__(self, text: str = "dummy response"):
+        self.app_name = "test-app"
+        self.text = text
+        # Provide an agent-like object so orchestrator.agent.name works
+        self.agent = SimpleNamespace(name="orchestrator")
+
+    async def run_async(self, user_id=None, session_id=None, new_message=None, run_config=None):
+        # Single final event with the configured text
+        yield SimpleNamespace(text=self.text)
+
 
 class DummySessionService:
     def __init__(self):
         self._store = {}
+
     def get_or_create_session(self, sid):
         if sid not in self._store:
             self._store[sid] = type("Sess", (), {"session_id": sid, "history": []})()
         return self._store[sid]
+
     def save_session(self, sess):
         self._store[sess.session_id] = sess
+
     def get_session(self, sid):
         return self._store.get(sid)
+
     def list_sessions(self):
         return list(self._store.keys())
+
     def delete_session(self, sid):
         if sid in self._store:
             del self._store[sid]
 
+
 def make_orchestrator():
+    runner = FakeRunner("dummy response")
     return ADKOrchestrator(
         profile_agent=None,
         recommender_agent=None,
-        agent=DummyAgent(),
+        agent=runner.agent,
         session_service=DummySessionService(),
         compaction_interval=3,
         overlap_size=1,
+        runner=runner,
     )
 
 
@@ -125,8 +133,6 @@ def test_compaction_preserves_context():
     assert len(history) == 8
 
 
-import asyncio
-import pytest
 @pytest.mark.asyncio
 async def test_async_chat():
     orchestrator = make_orchestrator()

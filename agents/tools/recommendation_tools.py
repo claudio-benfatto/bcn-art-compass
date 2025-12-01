@@ -8,23 +8,24 @@ These tools provide event recommendation operations that can be used by ADK agen
 All tools use closure pattern for dependency injection (no global state).
 """
 
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, TYPE_CHECKING
+from datetime import date, datetime
+import time
 
 from agents.event_ranker import EventRanker
 from memory.models import UserProfile
 from observability import log_error, log_info
-from rag.vector_store import VectorStore
+
+if TYPE_CHECKING:
+    # Only imported for type checking to avoid heavy runtime dependencies
+    from rag.vector_store import VectorStore
 
 
 def create_recommendation_tools(
-    vector_store: Optional[VectorStore] = None,
+    vector_store: Optional["VectorStore"] = None,
     event_ranker: Optional[EventRanker] = None,
-) -> Callable:
+) -> Callable[..., dict[str, Any]]:
     """Factory function that creates recommendation tool with dependencies captured in closure.
-
-    This pattern avoids global state by creating a tool function with dependencies
-    baked into its closure. The returned function has the exact signature expected
-    by ADK agents.
 
     Args:
         vector_store: VectorStore instance for RAG queries (optional)
@@ -119,11 +120,16 @@ def create_recommendation_tools(
                 "events": [],
             }
 
-        # Convert user_profile dict to UserProfile object if provided
+        # Convert user_profile dict to UserProfile object if provided.
+        # Tool callers often pass profile dicts without user_id; in that case
+        # we default user_id from the tool's user_id argument to keep parsing
+        # robust and avoid noisy validation errors.
         profile_obj = None
         if user_profile:
             try:
-                profile_obj = UserProfile(**user_profile)
+                profile_data = dict(user_profile)
+                profile_data.setdefault("user_id", user_id)
+                profile_obj = UserProfile(**profile_data)
             except Exception as e:
                 log_error(
                     "failed_to_parse_user_profile",
@@ -132,12 +138,72 @@ def create_recommendation_tools(
                 )
 
         # Query vector store with profile-aware scoring
-        results = vector_store.query(
-            query,
-            k=k,
-            profile=profile_obj,
-            filters={},
-        )
+        rag_ms: Optional[int] = None
+        rank_ms: Optional[int] = None
+        try:
+            t_q = time.time()
+            results = vector_store.query(
+                query,
+                k=k,
+                profile=profile_obj,
+                filters={},
+            )
+            rag_ms = int((time.time() - t_q) * 1000)
+        except Exception as e:  # pragma: no cover - defensive, but we add tests
+            log_error(
+                "vector_store_query_failed_in_tool",
+                error=str(e),
+                error_type=type(e).__name__,
+                user_id=user_id,
+                query=query,
+            )
+            return {
+                "query": query,
+                "profile_used": profile_obj is not None,
+                "ranking_strategy": "none",
+                "ranking_fallback": True,
+                "events": [],
+            }
+
+        # Filter out events that have already ended (end_date < today), but only
+        # when we have end_date information. This applies consistently to both
+        # local and Vertex-backed SearchResult objects.
+        from datetime import date as _date_type  # avoid name clash with imported date
+
+        today = _date_type.today()
+        filtered_results: list[Any] = []
+        expired_count = 0
+        for r in results:
+            end_val = getattr(r, "end_date", None)
+            if end_val is None:
+                filtered_results.append(r)
+                continue
+            try:
+                if isinstance(end_val, str):
+                    end_dt = _date_type.fromisoformat(end_val)
+                else:
+                    end_dt = end_val
+            except Exception:
+                # If we can't parse the date, keep the event rather than
+                # accidentally dropping valid recommendations.
+                filtered_results.append(r)
+                continue
+            if end_dt >= today:
+                filtered_results.append(r)
+            else:
+                expired_count += 1
+
+        if expired_count:
+            log_info(
+                "recommendation_filtered_past_events",
+                user_id=user_id,
+                query=query[:80],
+                expired=expired_count,
+                remaining=len(filtered_results),
+                today=str(today),
+            )
+
+        results = filtered_results
 
         # Apply LLM-based ranking if ranker is available and we have a profile
         ranking_strategy = "rag"
@@ -146,7 +212,9 @@ def create_recommendation_tools(
             log_info("applying_llm_ranking_in_tool", num_results=len(results))
             before_titles = [r.title for r in results]
             try:
+                t_rank = time.time()
                 results = event_ranker.rank_events(results, profile_obj, user_query=query)
+                rank_ms = int((time.time() - t_rank) * 1000)
                 ranking_strategy = "llm"
                 after_titles = [r.title for r in results]
                 if before_titles == after_titles:
@@ -163,6 +231,7 @@ def create_recommendation_tools(
                 ranking_fallback = True
         else:
             results.sort(key=lambda x: getattr(x, "score", 0.0), reverse=True)
+            rank_ms = None
 
         log_info(
             "recommendations_generated_by_tool",
@@ -201,12 +270,23 @@ def create_recommendation_tools(
         disliked_genres_set = set(g.lower() for g in (profile_obj.disliked_genres if profile_obj else []))
         favorite_artists_set = set(a.lower() for a in (profile_obj.favorite_artists if profile_obj else []))
 
+        def _json_safe(value: Any) -> Any:
+            """Recursively convert date/datetime objects to JSON-serializable strings."""
+            if isinstance(value, (date, datetime)):
+                return value.isoformat()
+            if isinstance(value, dict):
+                return {k: _json_safe(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [_json_safe(v) for v in value]
+            return value
+
         result_dicts = []
         for result in results:
             # Raw base dict
             base = result.model_dump() if hasattr(result, "model_dump") else (
                 result.dict() if hasattr(result, "dict") else {}
             )
+            base = _json_safe(base)
 
             # Compute distance if coords available
             distance_km = None
@@ -243,11 +323,11 @@ def create_recommendation_tools(
             artist_matches = [a for a in artists if a.lower() in favorite_artists_set]
             if artist_matches:
                 reasoning_parts.append(f"features favorite artist(s): {', '.join(artist_matches[:2])}")
-                if dist_cat:
-                    if distance_km is not None:
-                        reasoning_parts.append(f"{dist_cat} ({round(distance_km, 2)} km)")
-                    else:
-                        reasoning_parts.append(dist_cat)
+            if dist_cat:
+                if distance_km is not None:
+                    reasoning_parts.append(f"{dist_cat} ({round(distance_km, 2)} km)")
+                else:
+                    reasoning_parts.append(dist_cat)
             reasoning_parts.append(f"semantic score {round(getattr(result,'score',0.0),3)}")
             reasoning = "; ".join(reasoning_parts)
 
@@ -258,6 +338,17 @@ def create_recommendation_tools(
                 "reasoning": reasoning,
             }
             result_dicts.append(enriched)
+
+        log_info(
+            "recommendation_timing",
+            query=query[:80],
+            user_id=user_id,
+            rag_ms=rag_ms,
+            rank_ms=rank_ms,
+            num_results=len(results),
+            profile_used=profile_obj is not None,
+            ranking_strategy=ranking_strategy,
+        )
 
         return {
             "query": query,

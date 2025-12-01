@@ -14,7 +14,7 @@ WORKDIR /app
 COPY pyproject.toml ./
 
 # Install dependencies from pyproject.toml (base only, no [local] extras)
-# This excludes heavy packages: chromadb, ollama, sentence-transformers
+# This excludes heavy packages: chromadb, sentence-transformers
 RUN uv pip install --system --no-cache-dir \
     "fastapi>=0.115.0,<0.119.0" \
     "google-adk>=1.19.0" \

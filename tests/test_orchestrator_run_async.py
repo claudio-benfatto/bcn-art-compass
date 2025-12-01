@@ -4,48 +4,53 @@ from types import SimpleNamespace
 from agents.orchestrator import ADKOrchestrator
 
 
-class DummyModel:
-    def generate_content(self, contents, config=None, **kwargs):
-        class R:
-            def __init__(self):
-                self.text = "Fallback sync response"
-        return R()
+class FakeRunner:
+    """Minimal fake Runner that yields a single final event."""
+
+    def __init__(self, text: str):
+        self.app_name = "test-app"
+        self.text = text
+
+    async def run_async(self, user_id=None, session_id=None, new_message=None, run_config=None):
+        yield SimpleNamespace(text=self.text)
 
 
-async def fake_run_async(messages=None, user_id=None, session_id=None, context=None, tool_results=None, event=None, **kwargs):
-    # Simulate a streamed sequence ending with a final response event.
-    yield SimpleNamespace(type="final", text="Async run result")
+class DummySessionService:
+    """Simple in-memory session service for orchestrator history."""
+
+    def __init__(self):
+        self._store = {}
+
+    def get_or_create_session(self, sid):
+        if sid not in self._store:
+            self._store[sid] = SimpleNamespace(session_id=sid, history=[])
+        return self._store[sid]
+
+    def get_session(self, sid):
+        return self._store.get(sid)
+
+    def save_session(self, sess):
+        self._store[sess.session_id] = sess
+
+    def delete_session(self, sid):
+        self._store.pop(sid, None)
+
+    def list_sessions(self):
+        return list(self._store.keys())
 
 
-
-class StubAgent:
-    def __init__(self, name, with_run_async=True):
-        self.name = name
-        self.description = f"Stub agent for {name}"
-        self.model = DummyModel()
-        self._with_run_async = with_run_async
-
-    # Only define run_async if with_run_async is True
-    # This allows orchestrator to fall back to sync path when not present
-    def __init__(self, name, with_run_async=True):
-        self.name = name
-        self.description = f"Stub agent for {name}"
-        self.model = DummyModel()
-        if with_run_async:
-            async def run_async(user_id=None, message=None, **kwargs):
-                from types import SimpleNamespace
-                yield SimpleNamespace(type="final", text="Async run result")
-            self.run_async = run_async
-
-def make_stub_agent(name: str, with_run_async=True):
-    return StubAgent(name, with_run_async)
-
-
-def test_chat_async_uses_run_async(monkeypatch):
-    profile_agent = make_stub_agent("profile_agent", with_run_async=True)
-    recommender_agent = make_stub_agent("recommender_agent", with_run_async=True)
-
-    orch = ADKOrchestrator(profile_agent=profile_agent, recommender_agent=recommender_agent)
+def test_chat_async_uses_runner_via_chat_async():
+    """chat_async should delegate to chat, which in turn uses the injected Runner."""
+    runner = FakeRunner("Async run result")
+    dummy_agent = SimpleNamespace(name="orchestrator")
+    session_service = DummySessionService()
+    orch = ADKOrchestrator(
+        profile_agent=None,
+        recommender_agent=None,
+        agent=dummy_agent,
+        session_service=session_service,
+        runner=runner,
+    )
 
     async def run_test():
         resp = await orch.chat_async(user_id="u1", message="Hello")
@@ -58,17 +63,31 @@ def test_chat_async_uses_run_async(monkeypatch):
     asyncio.run(run_test())
 
 
-def test_chat_async_fallback_to_sync(monkeypatch):
-    profile_agent = make_stub_agent("profile_agent", with_run_async=False)
-    recommender_agent = make_stub_agent("recommender_agent", with_run_async=False)
+def test_chat_async_propagates_errors_from_runner():
+    """If the Runner raises, chat_async should surface the orchestrator error text."""
 
-    orch = ADKOrchestrator(profile_agent=profile_agent, recommender_agent=recommender_agent)
+    class FailingRunner:
+        def __init__(self):
+            self.app_name = "test-app"
+
+        async def run_async(self, user_id=None, session_id=None, new_message=None, run_config=None):
+            raise RuntimeError("boom")
+
+    dummy_agent = SimpleNamespace(name="orchestrator")
+    session_service = DummySessionService()
+    orch = ADKOrchestrator(
+        profile_agent=None,
+        recommender_agent=None,
+        agent=dummy_agent,
+        session_service=session_service,
+        runner=FailingRunner(),
+    )
 
     async def run_test():
         resp = await orch.chat_async(user_id="u2", message="Hi there")
-        assert resp == "Fallback sync response"
+        assert "internal error while running the multi-agent orchestrator" in resp
         history = orch.get_session_history("u2")
-        assert len(history) == 2
-        assert history[1]["content"] == "Fallback sync response"
+        # On error, we do not append the model turn
+        assert len(history) == 0 or history[-1]["role"] != "model"
 
     asyncio.run(run_test())

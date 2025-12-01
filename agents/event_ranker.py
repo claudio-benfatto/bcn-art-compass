@@ -1,14 +1,15 @@
 """Event ranking interface and implementations.
 
-Provides a standard interface for ranking events and concrete implementations
-for different LLM backends (Gemini, Ollama).
+Provides a standard interface for ranking events and a concrete implementation
+for a Gemini-based LLM ranker.
 """
 
 import os
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, List, Protocol, Union
 
 from observability import log_error, log_info
+from agents.prompts import get_event_ranking_prompt
 from rag.models import EventWithVenue, SearchResult
 from tools.geocoder import geocoder_tool
 
@@ -16,8 +17,28 @@ if TYPE_CHECKING:
     from memory.models import UserProfile
 
 
+class Geocoder(Protocol):
+    """Protocol for geocoding and distance calculations used by rankers."""
+
+    def geocode(self, location: str) -> dict | None:  # pragma: no cover - interface only
+        ...
+
+    def calculate_distance(  # pragma: no cover - interface only
+        self,
+        lat1: float,
+        lon1: float,
+        lat2: float,
+        lon2: float,
+    ) -> float:
+        ...
+
+
 class EventRanker(ABC):
     """Abstract base class for event ranking."""
+
+    def __init__(self, geocoder: Geocoder | None = None) -> None:
+        # Allow injecting a fake geocoder for tests; default to shared singleton.
+        self._geocoder: Geocoder = geocoder or geocoder_tool
 
     @abstractmethod
     def rank_events(
@@ -38,74 +59,6 @@ class EventRanker(ABC):
             Re-ranked list of results
         """
         pass
-
-    def _build_ranking_prompt(
-        self,
-        events_context: List[dict],
-        profile: "UserProfile",
-        user_query: str = "",
-    ) -> str:
-        """
-        Build comprehensive prompt with all ranking context.
-
-        Args:
-            events_context: List of event dictionaries with all details
-            profile: User profile
-            user_query: Original user search query
-
-        Returns:
-            Formatted prompt string
-        """
-        # Format user profile
-        profile_text = f"""User Profile:
-- Location: {profile.location or 'Not specified'}
-- Favorite genres: {', '.join(profile.favorite_genres) if profile.favorite_genres else 'None'}
-- Favorite artists: {', '.join(profile.favorite_artists) if profile.favorite_artists else 'None'}
-- Disliked genres: {', '.join(profile.disliked_genres) if profile.disliked_genres else 'None'}
-"""
-
-        # Format events
-        events_text = "\n\n".join([
-            f"""{e['index']}. {e['title']}
-   Venue: {e['venue']}
-   Genres: {', '.join(e['genres'][:3])}
-   Artists: {', '.join(e['artists'][:2]) if e['artists'] else 'N/A'}
-   RAG Score: {e['rag_score']} (semantic similarity to query)
-   Distance: {e['distance_km']} km from user
-   Description: {e['description']}"""
-            for e in events_context
-        ])
-
-        query_text = f"User Query: \"{user_query}\"\n" if user_query else ""
-
-        prompt = f"""You are an expert art curator helping rank cultural events for a user.
-
-{query_text}{profile_text}
-
-Events to rank:
-{events_text}
-
-Task: Rank these events from most to least relevant for this user.
-
-Consider ALL THREE factors:
-1. **User query**: What is the user specifically looking for? This is their immediate intent.
-2. **User preferences**: Favor favorite genres/artists, avoid disliked genres (long-term profile)
-3. **Location**: Closer events are more convenient, but amazing matches may be worth traveling for
-4. **RAG score**: Shows semantic similarity between the event and the user's query
-
-Apply nuanced reasoning. For example:
-- If user asks "sculpture exhibitions", prioritize sculpture events even if farther away
-- An event matching the query + favorite genre beats one that only matches profile
-- Avoid disliked genres even if they match the query
-- Balance query intent with profile preferences and location
-- Very high RAG scores indicate strong query-event match - weight them heavily
-
-Respond with ONLY a comma-separated list of event numbers in your preferred ranking order.
-Example: 3, 1, 5, 2, 4
-
-Your ranking:"""
-
-        return prompt
 
     def _extract_events_context(
         self,
@@ -147,7 +100,7 @@ Your ranking:"""
             # Calculate distance if possible
             distance_km = None
             if user_coords and venue_lat and venue_lon:
-                distance_km = geocoder_tool.calculate_distance(
+                distance_km = self._geocoder.calculate_distance(
                     user_coords["lat"], user_coords["lon"], venue_lat, venue_lon
                 )
 
@@ -185,22 +138,56 @@ Your ranking:"""
         return ranking_indices
 
 
+class RankingLlmClient(Protocol):
+    """Minimal protocol for an LLM client that can rank events given a prompt.
+
+    This indirection allows us to inject fakes/doubles in tests and keep the
+    EventRanker logic independent from a specific SDK or transport.
+    """
+
+    def generate_ranking(self, prompt: str) -> str:  # pragma: no cover - interface only
+        ...
+
+
+class GeminiLlmClient:
+    """Concrete RankingLlmClient backed by google.generativeai."""
+
+    def __init__(self, api_key: str, model: str) -> None:
+        # Import inside constructor so tests can inject a fake client without
+        # importing the heavy google.generativeai dependency.
+        import google.generativeai as genai  # type: ignore[import-not-found]
+
+        genai.configure(api_key=api_key)
+        self._model = genai.GenerativeModel(model)
+
+    def generate_ranking(self, prompt: str) -> str:
+        response = self._model.generate_content(prompt)
+        text = getattr(response, "text", "") or ""
+        return text.strip()
+
+
 class GeminiEventRanker(EventRanker):
     """Event ranker using Google Gemini."""
 
-    def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "gemini-2.5-flash",
+        client: RankingLlmClient | None = None,
+        geocoder: Geocoder | None = None,
+    ) -> None:
         """
         Initialize Gemini event ranker.
 
         Args:
             api_key: Google API key
             model: Gemini model to use
+            client: Optional pre-configured RankingLlmClient (for testing or custom wiring)
+            geocoder: Optional Geocoder implementation (for testing or custom wiring)
         """
-        import google.generativeai as genai
-
-        genai.configure(api_key=api_key)
-        self.client = genai.GenerativeModel(model)
+        super().__init__(geocoder=geocoder)
         self.model = model
+        self._client: RankingLlmClient = client or GeminiLlmClient(api_key=api_key, model=model)
         log_info("event_ranker_initialized", backend="gemini", model=model)
 
     def rank_events(
@@ -223,7 +210,7 @@ class GeminiEventRanker(EventRanker):
         # Get user coordinates
         user_coords = None
         if profile.location:
-            user_coords = geocoder_tool.geocode(profile.location)
+            user_coords = self._geocoder.geocode(profile.location)
             if user_coords:
                 log_info(
                     "user_location_resolved",
@@ -234,14 +221,13 @@ class GeminiEventRanker(EventRanker):
         # Extract event context
         events_context = self._extract_events_context(results, user_coords)
 
-        # Build prompt
-        prompt = self._build_ranking_prompt(events_context, profile, user_query)
+        # Build prompt (centralized in agents.prompts)
+        prompt = get_event_ranking_prompt(events_context, profile, user_query)
 
         try:
             log_info("calling_llm_for_ranking", num_events=len(results), backend="gemini")
 
-            response = self.client.generate_content(prompt)
-            ranking_text = response.text.strip()
+            ranking_text = self._client.generate_ranking(prompt)
 
             log_info("llm_ranking_response", response=ranking_text[:200])
 
@@ -278,112 +264,12 @@ class GeminiEventRanker(EventRanker):
             return results
 
 
-class OllamaEventRanker(EventRanker):
-    """Event ranker using Ollama (local LLM)."""
 
-    def __init__(self, model: str = "llama3.2:3b", base_url: str = "http://localhost:11434"):
-        """
-        Initialize Ollama event ranker.
-
-        Args:
-            model: Ollama model to use
-            base_url: Ollama server URL
-        """
-        self.model = model
-        self.base_url = base_url
-        log_info("event_ranker_initialized", backend="ollama", model=model)
-
-    def rank_events(
-        self,
-        results: List[Union[EventWithVenue, SearchResult]],
-        profile: "UserProfile",
-        user_query: str = "",
-    ) -> List[Union[EventWithVenue, SearchResult]]:
-        """Rank events using Ollama."""
-        if not results:
-            return results
-
-        log_info(
-            "applying_llm_ranking",
-            num_events=len(results),
-            backend="ollama",
-            has_user_location=bool(profile.location),
-        )
-
-        # Get user coordinates
-        user_coords = None
-        if profile.location:
-            user_coords = geocoder_tool.geocode(profile.location)
-            if user_coords:
-                log_info(
-                    "user_location_resolved",
-                    location=profile.location,
-                    coords=f"{user_coords['lat']},{user_coords['lon']}",
-                )
-
-        # Extract event context
-        events_context = self._extract_events_context(results, user_coords)
-
-        # Build ranking prompt with query, profile, and location
-        prompt = self._build_ranking_prompt(events_context, profile, user_query)
-
-        try:
-            import requests
-
-            log_info("calling_llm_for_ranking", num_events=len(results), backend="ollama")
-
-            response = requests.post(
-                f"{self.base_url}/api/generate",
-                json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": False,
-                },
-                timeout=30
-            )
-            response.raise_for_status()
-            ranking_text = response.json()["response"].strip()
-
-            log_info("llm_ranking_response", response=ranking_text[:200])
-
-            # Parse ranking
-            ranking_indices = self._parse_ranking_response(ranking_text)
-
-            # Validate and apply ranking
-            if len(ranking_indices) == len(results) and set(ranking_indices) == set(range(len(results))):
-                reranked = [results[i] for i in ranking_indices]
-
-                def get_title(r):
-                    return r.title[:50] if hasattr(r, "title") else "unknown"
-
-                log_info(
-                    "llm_ranking_applied",
-                    original_top=get_title(results[0]),
-                    reranked_top=get_title(reranked[0]),
-                )
-                return reranked
-            else:
-                log_error(
-                    "llm_ranking_invalid",
-                    expected=len(results),
-                    got=len(ranking_indices),
-                    indices=ranking_indices,
-                    reason="Invalid ranking from LLM, using RAG score order",
-                )
-                results.sort(key=lambda x: getattr(x, "score", 0.0), reverse=True)
-                return results
-
-        except Exception as e:
-            log_error("llm_ranking_failed", error=str(e), error_type=type(e).__name__)
-            results.sort(key=lambda x: getattr(x, "score", 0.0), reverse=True)
-            return results
-
-
-def create_event_ranker(api_key: str = None) -> EventRanker:
+def create_event_ranker(api_key: str | None = None) -> EventRanker:
     """
     Factory function to create event ranker based on environment.
 
-    Prefers Gemini if api_key provided, otherwise uses Ollama.
+    Creates a Gemini-based event ranker.
 
     Args:
         api_key: Optional Google API key for Gemini
@@ -391,10 +277,14 @@ def create_event_ranker(api_key: str = None) -> EventRanker:
     Returns:
         EventRanker instance
     """
-    if api_key:
-        return GeminiEventRanker(api_key=api_key)
+    if api_key is None:
+        # Fallback to environment for convenience in CLI/API wiring
+        api_key = os.getenv("GOOGLE_API_KEY")
 
-    # Use Ollama for local development
-    model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
-    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    return OllamaEventRanker(model=model, base_url=base_url)
+    if not api_key:
+        raise RuntimeError(
+            "No API key provided for event ranker. "
+            "Set GOOGLE_API_KEY or pass api_key to create_event_ranker()."
+        )
+
+    return GeminiEventRanker(api_key=api_key)

@@ -1,8 +1,14 @@
 """Agent prompts and instructions for the ADK-based BCN Art Compass system.
 
 This module contains the system prompts and instructions that define the behavior
-of the main orchestrator agent.
+of the main orchestrator agent and other LLM-based components.
 """
+
+from typing import TYPE_CHECKING, Any, List
+
+if TYPE_CHECKING:
+    from memory.models import UserProfile
+
 
 ORCHESTRATOR_INSTRUCTIONS = """You are the BCN Art Compass Orchestrator, coordinating specialized AI agents.
 
@@ -85,6 +91,7 @@ You: "Hi! I'm your guide to Barcelona's art scene. I can help you discover exhib
 ## Important Guidelines
 
 - Keep agent interactions transparent but not technical
+- **NEVER ask the user for their user_id**: The user_id is already provided by the system automatically (from Telegram or the API). You already have it and can pass it to agents directly.
 - Always provide user context to agents (user_id)
 - Handle errors gracefully - if an agent fails, try alternatives
 - Don't expose implementation details (vector stores, embeddings, etc.)
@@ -150,3 +157,70 @@ Input: "I love contemporary sculpture and Picasso"
 Output: {{"favorite_genres": ["contemporary sculpture"], "disliked_genres": [], "favorite_artists": ["Picasso"], "location": null}}
 
 Now analyze the user statement and return only the JSON object:"""
+
+
+def get_event_ranking_prompt(
+    events_context: List[dict],
+    profile: "UserProfile",
+    user_query: str = "",
+) -> str:
+    """Build the prompt for LLM-based event ranking.
+
+    Args:
+        events_context: List of event context dictionaries with fields like
+            index, title, genres, artists, rag_score, distance_km, description.
+        profile: User profile with preferences and location.
+        user_query: Original user search query (optional).
+    """
+    # Format user profile
+    profile_text = f"""User Profile:
+- Location: {profile.location or 'Not specified'}
+- Favorite genres: {', '.join(profile.favorite_genres) if profile.favorite_genres else 'None'}
+- Favorite artists: {', '.join(profile.favorite_artists) if profile.favorite_artists else 'None'}
+- Disliked genres: {', '.join(profile.disliked_genres) if profile.disliked_genres else 'None'}
+"""
+
+    # Format events
+    events_text = "\n\n".join(
+        [
+            f"""{e['index']}. {e['title']}
+   Venue: {e['venue']}
+   Genres: {', '.join(e['genres'][:3])}
+   Artists: {', '.join(e['artists'][:2]) if e['artists'] else 'N/A'}
+   RAG Score: {e['rag_score']} (semantic similarity to query)
+   Distance: {e['distance_km']} km from user
+   Description: {e['description']}"""
+            for e in events_context
+        ]
+    )
+
+    query_text = f"User Query: \"{user_query}\"\n" if user_query else ""
+
+    prompt = f"""You are an expert art curator helping rank cultural events for a user.
+
+{query_text}{profile_text}
+
+Events to rank:
+{events_text}
+
+Task: Rank these events from most to least relevant for this user.
+
+Consider ALL THREE factors:
+1. **User query**: What is the user specifically looking for? This is their immediate intent.
+2. **User preferences**: Favor favorite genres/artists, avoid disliked genres (long-term profile)
+3. **Location**: Closer events are more convenient, but amazing matches may be worth traveling for
+4. **RAG score**: Shows semantic similarity between the event and the user's query
+
+Apply nuanced reasoning. For example:
+- If user asks "sculpture exhibitions", prioritize sculpture events even if farther away
+- An event matching the query + favorite genre beats one that only matches profile
+- Avoid disliked genres even if they match the query
+- Balance query intent with profile preferences and location
+- Very high RAG scores indicate strong query-event match - weight them heavily
+
+Respond with ONLY a comma-separated list of event numbers in your preferred ranking order.
+Example: 3, 1, 5, 2, 4
+
+Your ranking:"""
+
+    return prompt

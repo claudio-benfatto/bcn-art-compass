@@ -241,36 +241,7 @@ uv run python cli.py
 - Recognizes common art genres
 - No external dependencies
 
-#### Option 2: Local LLM via Ollama (Free, Better Quality) 🦙
-
-Uses Llama3.2 running locally via Ollama for more accurate extraction.
-
-```bash
-# Install Ollama
-brew install ollama  # macOS
-# or download from https://ollama.com
-
-# Pull Llama3.2 model
-ollama pull llama3.2
-
-# Start Ollama service
-ollama serve
-
-# Run CLI (will auto-detect Ollama)
-uv run python cli.py
-
-# Or explicitly force local LLM
-USE_LOCAL_LLM=true uv run python cli.py
-```
-
-**Capabilities:**
-- Understands complex preferences
-- Extracts artist names
-- Detects locations
-- Handles mixed statements
-- 100% free and private
-
-#### Option 3: Google Gemini (Cloud, Best Quality) ☁️
+#### Option 2: Google Gemini (Cloud, Best Quality) ☁️
 
 Uses Google's Gemini-1.5-flash for the most accurate extraction.
 

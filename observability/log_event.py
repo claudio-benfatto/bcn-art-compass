@@ -8,7 +8,7 @@ RAG queries, memory updates, and MCP tool calls with correlation IDs.
 import logging
 import uuid
 from contextvars import ContextVar
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import structlog
 
@@ -16,13 +16,20 @@ import structlog
 correlation_id_ctx: ContextVar[Optional[str]] = ContextVar("correlation_id", default=None)
 
 
-def configure_logging(log_level: str = "INFO") -> None:
+def configure_logging(log_level: Union[str, int] = "INFO") -> None:
     """
     Configure structured logging for the application.
 
     Args:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
     """
+    # Normalize log_level to an integer understood by the standard logging module.
+    if isinstance(log_level, str):
+        level_name = log_level.upper()
+        level = getattr(logging, level_name, logging.INFO)
+    else:
+        level = int(log_level)
+
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
@@ -32,7 +39,7 @@ def configure_logging(log_level: str = "INFO") -> None:
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.JSONRenderer(),
         ],
-        wrapper_class=structlog.make_filtering_bound_logger(logging.getLevelName(log_level)),
+        wrapper_class=structlog.make_filtering_bound_logger(level),
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=True,

@@ -62,7 +62,8 @@ class MemoryStorage(ProfileStorage):
     def _write_profiles(self, profiles: dict[str, dict]) -> None:
         """Write all profiles to JSON file."""
         with open(self.storage_path, "w") as f:
-            json.dump(profiles, f, indent=2)
+            # Profiles may contain datetime/date fields; make them JSON-safe.
+            json.dump(profiles, f, indent=2, default=str)
 
     def load_profile(self, user_id: str) -> UserProfile:
         """

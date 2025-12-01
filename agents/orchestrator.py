@@ -11,17 +11,22 @@ Each agent is a separate Gemini model instance that can be called via AgentTool.
 """
 
 from typing import Optional
+import contextlib
+import io
+import json
+import re
+import sys
+import time
 
-from google.adk import Agent
+from google.adk import Agent, Runner
 from google.adk.apps.app import EventsCompactionConfig
 from agents.adk_workaround import patch_event_compaction
-from google.adk.sessions import DatabaseSessionService
+from google.adk.sessions import DatabaseSessionService, InMemorySessionService
 from google.adk.tools import AgentTool
 from google.genai import types
 
 from agents.prompts import ORCHESTRATOR_INSTRUCTIONS
 from observability import log_error, log_info
-import json
 
 def summarize_profile_update(payload: dict) -> str:
     """Create deterministic confirmation text from profile diff payload.
@@ -92,12 +97,13 @@ class ADKOrchestrator:
         self,
         profile_agent: Optional[object],
         recommender_agent: Optional[object],
-        model_name: str = "gemini-2.5-flash-exp",
+        model_name: str = "gemini-2.5-pro",
         database_url: Optional[str] = None,
         compaction_interval: int = 5,
         overlap_size: int = 2,
         agent: Optional[object] = None,
         session_service: Optional[object] = None,
+        runner: Optional[object] = None,
     ):
         """Initialize the ADK orchestrator.
 
@@ -222,23 +228,36 @@ class ADKOrchestrator:
                 overlap_size=overlap_size,
             )
 
-        # Allow direct injection of agent for tests
-        if agent is not None:
-            self.agent = agent
+        # Allow direct injection of agent/runner for tests
+        if runner is not None:
+            # Testing/custom mode: use provided agent/runner and skip ADK wiring.
+            self.agent = agent or getattr(runner, "agent", None) or object()
+            self._runner = runner
+            self._runner_session_service = None
         else:
-            self.agent = Agent(
-                model=model_name,
-                name="orchestrator",
-                instruction=ORCHESTRATOR_INSTRUCTIONS,
-                tools=[
-                    AgentTool(agent=profile_agent),
-                    AgentTool(agent=recommender_agent),
-                ],
-            )
+            # Normal ADK Agent wiring
+            if agent is not None:
+                self.agent = agent
+            else:
+                self.agent = Agent(
+                    model=model_name,
+                    name="orchestrator",
+                    instruction=ORCHESTRATOR_INSTRUCTIONS,
+                    tools=[
+                        AgentTool(agent=profile_agent),
+                        AgentTool(agent=recommender_agent),
+                    ],
+                )
 
-        # TODO (Phase 3): Replace manual contents + model_client.generate_content with
-        # idiomatic Agent.run_async streaming once InvocationContext helpers are
-        # exposed in current google-adk build for this project.
+            # ADK Runner for full multi-agent + tools execution (RAG, profile, etc.)
+            # Uses a separate in-memory session service from the orchestrator's own
+            # simple history store.
+            self._runner_session_service = InMemorySessionService()
+            self._runner = Runner(
+                app_name="bcn-art-compass-orchestrator",
+                agent=self.agent,
+                session_service=self._runner_session_service,
+            )
 
         log_info(
             "adk_orchestrator_initialized",
@@ -282,99 +301,224 @@ class ADKOrchestrator:
             session_id=session_id,
         )
 
+        start_ts = time.time()
+
         try:
-            # Get or create session
+            # Get or create simple history session (for our own storage/compaction)
             session = self._session_service.get_or_create_session(session_id)
-            
+
             log_info(
                 "session_retrieved",
                 session_id=session_id,
                 history_length=len(session.history) if session.history else 0,
             )
 
-            # Build messages for unified handling (sync path attempts streaming).
-            messages = self._build_messages(session, message)
-
-            response_text: Optional[str] = None
-            run_method = getattr(self.agent, "run_async", None)
-            if run_method is not None:
-                # Attempt to execute async streaming in a temporary event loop.
-                import asyncio
-
-                async def collect_stream():
-                    final: Optional[str] = None
-                    confirmation_text: Optional[str] = None
-                    async for event in run_method(message):
-                        if isinstance(event, str):
-                            log_info("adk_bug_skipped_string_event", event_value=repr(event))
-                            continue
-                        etype = getattr(event, "type", None)
-                        compaction = patch_event_compaction(event)
-                        if etype in {"tool_call", "tool_result", "tool_error"}:
-                            tool_name = getattr(event, "tool_name", None) or getattr(event, "name", "unknown_tool")
-                            status = "error" if etype == "tool_error" else "ok"
-                            if not session.history:
-                                session.history = []
-                            raw_payload = None
-                            if etype == "tool_result":
-                                for attr in ("output", "response", "result", "data"):
-                                    raw_payload = getattr(event, attr, None)
-                                    if raw_payload:
-                                        break
-                                if isinstance(raw_payload, dict) and {"profile", "updated"}.issubset(raw_payload.keys()):
-                                    confirmation_text = summarize_profile_update(raw_payload)
-                                    log_info(
-                                        "profile_update_confirmed",
-                                        user_id=user_id,
-                                        confirmation=confirmation_text,
-                                        favorite_genres_added=len(raw_payload["updated"].get("favorite_genres_added", [])),
-                                        favorite_genres_removed=len(raw_payload["updated"].get("favorite_genres_removed", [])),
-                                    )
-                                    session.history.append({"role": "tool", "content": json.dumps(raw_payload)})
-                                    continue
-                            session.history.append({"role": "tool", "content": f"{tool_name}:{status}"})
-                            continue
-                        candidate = (
-                            getattr(event, "text", None)
-                            or getattr(event, "content", None)
-                            or (
-                                " ".join(getattr(event, "parts", []))
-                                if getattr(event, "parts", None)
-                                else None
-                            )
-                        )
-                        if candidate and etype in {"response", "ai_response", "final"}:
-                            if (
-                                confirmation_text
-                                and not message.strip().lower().startswith("show")
-                                and not message.strip().lower().startswith("recommend")
-                            ):
-                                final = confirmation_text
-                            else:
-                                final = f"{confirmation_text} {candidate}" if confirmation_text else candidate
-                    return final
-
-                try:
-                    response_text = asyncio.run(collect_stream())
-                except RuntimeError:
-                    log_info("sync_run_async_runtime_error_fallback_model")
-
-            if response_text is None:
-                # Fallback: direct model generation (legacy path)
-                model_client = getattr(self.agent, "model", None)
-                if model_client is None:
-                    raise RuntimeError("ADK Agent has no underlying model client exposed.")
-                legacy_contents = []
-                for m in messages:
-                    legacy_contents.append({"role": m["role"], "parts": [m["content"]]})
-                response_obj = model_client.generate_content(
-                    legacy_contents,
-                    config=types.GenerateContentConfig(
-                        system_instruction=f"User ID: {user_id}. Session ID: {session_id}.",
-                        temperature=0.7,
-                    ),
+            # Ensure ADK Runner session exists (separate from our simple history),
+            # but only when we are using a real ADK InMemorySessionService.
+            if self._runner_session_service is not None:
+                adk_svc = self._runner_session_service
+                adk_session = adk_svc.get_session_sync(
+                    app_name=self._runner.app_name,
+                    user_id=user_id,
+                    session_id=session_id,
                 )
-                response_text = response_obj.text
+                if not adk_session:
+                    adk_session = adk_svc.create_session_sync(
+                        app_name=self._runner.app_name,
+                        user_id=user_id,
+                        session_id=session_id,
+                    )
+
+            # Run full ADK agent graph (orchestrator + profile + recommender + tools)
+            import asyncio
+
+            async def _run():
+                final: Optional[str] = None
+                confirmation_text: Optional[str] = None
+
+                log_info(
+                    "runner_starting",
+                    session_id=session_id,
+                    user_id=user_id,
+                )
+
+                first_event = True
+                async for event in self._runner.run_async(
+                    user_id=user_id,
+                    session_id=session_id,
+                    new_message=types.UserContent(
+                        parts=[types.Part(text=message)]
+                    ),
+                    run_config=None,
+                ):
+                    if first_event:
+                        log_info("runner_first_event_received")
+                        first_event = False
+                    
+                    if isinstance(event, str):
+                        log_info("adk_bug_skipped_string_event", event_value=repr(event))
+                        continue
+
+                    etype = getattr(event, "type", None)
+                    compaction = patch_event_compaction(event)
+
+                    # Tool events (profile updates, RAG calls, etc.)
+                    if etype in {"tool_call", "tool_result", "tool_error"}:
+                        tool_name = getattr(event, "tool_name", None) or getattr(
+                            event, "name", "unknown_tool"
+                        )
+                        status = "error" if etype == "tool_error" else "ok"
+                        if not session.history:
+                            session.history = []
+                        raw_payload = None
+                        if etype == "tool_result":
+                            for attr in ("output", "response", "result", "data"):
+                                raw_payload = getattr(event, attr, None)
+                                if raw_payload:
+                                    break
+                            if isinstance(raw_payload, dict) and {
+                                "profile",
+                                "updated",
+                            }.issubset(raw_payload.keys()):
+                                confirmation_text = summarize_profile_update(
+                                    raw_payload
+                                )
+                                log_info(
+                                    "profile_update_confirmed",
+                                    user_id=user_id,
+                                    confirmation=confirmation_text,
+                                    favorite_genres_added=len(
+                                        raw_payload["updated"].get(
+                                            "favorite_genres_added", []
+                                        )
+                                    ),
+                                    favorite_genres_removed=len(
+                                        raw_payload["updated"].get(
+                                            "favorite_genres_removed", []
+                                        )
+                                    ),
+                                )
+                                # raw_payload may contain date/datetime objects; make it JSON-safe
+                                try:
+                                    payload_str = json.dumps(raw_payload, default=str)
+                                except TypeError:
+                                    payload_str = repr(raw_payload)
+                                session.history.append(
+                                    {
+                                        "role": "tool",
+                                        "content": payload_str,
+                                    }
+                                )
+                                continue
+                        session.history.append(
+                            {"role": "tool", "content": f"{tool_name}:{status}"}
+                        )
+                        continue
+
+                    # Model text candidates
+                    raw_content = getattr(event, "content", None)
+                    # If content is a google.genai.types.Content object, extract text parts
+                    if isinstance(raw_content, types.Content):
+                        raw_content = "".join(
+                            (part.text or "")
+                            for part in getattr(raw_content, "parts", []) or []
+                            if getattr(part, "text", None)
+                        ) or None
+
+                    candidate = (
+                        getattr(event, "text", None)
+                        or raw_content
+                        or (
+                            " ".join(getattr(event, "parts", []))
+                            if getattr(event, "parts", None)
+                            else None
+                        )
+                    )
+                    # ADK event types may vary; treat any non-empty candidate as a
+                    # potential final answer, preferring confirmation_text when set.
+                    if candidate:
+                        if (
+                            confirmation_text
+                            and not message.strip().lower().startswith("show")
+                            and not message.strip().lower().startswith("recommend")
+                        ):
+                            final = confirmation_text
+                        else:
+                            final = (
+                                f"{confirmation_text} {candidate}"
+                                if confirmation_text
+                                else candidate
+                            )
+
+                return final or "(no response)"
+
+            # Retry wrapper to handle 429 RESOURCE_EXHAUSTED from Gemini.
+            # We also filter noisy deprecation prints from underlying SDKs while
+            # preserving all other stdout/stderr output. We track timing for the
+            # runner portion to help diagnose slow chats.
+            max_retries = 10
+            attempt = 0
+            last_error: Optional[Exception] = None
+            runner_ms = 0
+            runner_attempts = 0
+            while True:
+                try:
+                    stdout_buf = io.StringIO()
+                    stderr_buf = io.StringIO()
+                    with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
+                        t0 = time.time()
+                        response_text = asyncio.run(_run())
+                        runner_ms += int((time.time() - t0) * 1000)
+                        runner_attempts += 1
+
+                    # Re-emit any captured stdout/stderr except known noisy deprecation lines
+                    def _reemit_filtered(buf: io.StringIO, stream) -> None:
+                        text = buf.getvalue()
+                        if not text:
+                            return
+                        for line in text.splitlines():
+                            if line.strip() == "Deprecated. Please migrate to the async method.":
+                                continue
+                            print(line, file=stream)
+
+                    _reemit_filtered(stdout_buf, sys.stdout)
+                    _reemit_filtered(stderr_buf, sys.stderr)
+
+                    break
+                except Exception as run_err:
+                    msg = str(run_err)
+                    last_error = run_err
+                    # Detect quota / rate limit errors
+                    if "RESOURCE_EXHAUSTED" in msg or "429" in msg:
+                        if attempt >= max_retries:
+                            log_error(
+                                "chat_run_async_quota_retries_exhausted",
+                                user_id=user_id,
+                                session_id=session_id,
+                                error=msg,
+                                attempts=attempt + 1,
+                            )
+                            raise
+                        # Try to extract suggested retry delay (e.g. retryDelay: '40s')
+                        delay_seconds = 5.0
+                        m = re.search(r"retryDelay['\"]?:\\s*'(?P<secs>\\d+)s'", msg)
+                        if m:
+                            try:
+                                delay_seconds = float(m.group("secs"))
+                            except ValueError:
+                                delay_seconds = 5.0
+                        log_info(
+                            "chat_run_async_quota_retry",
+                            user_id=user_id,
+                            session_id=session_id,
+                            delay_seconds=delay_seconds,
+                            attempt=attempt + 1,
+                        )
+                        time.sleep(delay_seconds)
+                        attempt += 1
+                        continue
+                    # Non-quota error: re-raise to outer handler
+                    raise
 
             # Append model response to history in simplified event format
             if not session.history:
@@ -384,6 +528,16 @@ class ADKOrchestrator:
 
             # Persist updated session
             self._session_service.save_session(session)
+
+            total_ms = int((time.time() - start_ts) * 1000)
+            log_info(
+                "chat_timing",
+                user_id=user_id,
+                session_id=session_id,
+                total_ms=total_ms,
+                runner_ms=runner_ms,
+                runner_attempts=runner_attempts or 0,
+            )
 
             log_info(
                 "chat_response_generated",
@@ -403,9 +557,10 @@ class ADKOrchestrator:
                 error_type=type(e).__name__,
                 session_id=session_id,
             )
+            # No silent fallback – surface a clear orchestrator error
             return (
-                "I apologize, but I encountered an error while processing your request. "
-                "Please try again or rephrase your question."
+                "I encountered an internal error while running the multi-agent orchestrator. "
+                "Please check the server logs for details."
             )
 
     # --- Internal helpers (MVP scope) -------------------------------------------------
@@ -429,29 +584,15 @@ class ADKOrchestrator:
         """Dedicated fallback path invoking existing sync chat implementation."""
         return self.chat(user_id=user_id, message=message, session_id=session_id)
 
-    async def chat_async(self, user_id: str, message: str, session_id: Optional[str] = None) -> str:
-        """Async version of chat using Agent.run_async when available.
+    async def chat_async(
+        self,
+        user_id: str,
+        message: str,
+        session_id: Optional[str] = None,
+    ) -> str:
+        """Async wrapper around sync chat to avoid ADK run_async incompatibilities."""
+        import asyncio
 
-        This implementation attempts to use the ADK agent's event streaming via
-        `run_async` (if present). If any error occurs or the method is missing,
-        it falls back to the synchronous `chat` implementation.
-
-        Event Handling Strategy (MVP):
-        - Collect user + prior turns into a simple message list (role/content)
-        - Stream events; capture the last textual response event (preferring
-          `event.text`, else `event.content`, else concatenated parts)
-        - Persist only the final model response and the user message in session
-        - Tool invocation / intermediate events are ignored for history (can be
-          added in future phases for richer traceability)
-
-        Args:
-            user_id: Unique identifier for the user
-            message: User's message text
-            session_id: Optional session identifier (defaults to user_id)
-
-        Returns:
-            Agent's response text
-        """
         session_id = session_id or user_id
 
         log_info(
@@ -461,79 +602,8 @@ class ADKOrchestrator:
             session_id=session_id,
         )
 
-        # Attempt run_async path
-        run_method = getattr(self.agent, "run_async", None)
-        if run_method is None:
-            log_info("run_async_not_available_fallback_sync")
-            return self._sync_fallback(user_id, message, session_id)
-
         try:
-            session = self._session_service.get_or_create_session(session_id)
-            messages = self._build_messages(session, message)
-
-            # (Second event loop: also skip string events)
-            final_text: Optional[str] = None
-            confirmation_text: Optional[str] = None
-            async for event in run_method(message):
-                try:
-                    if isinstance(event, str):
-                        log_info("adk_bug_skipped_string_event", event_value=repr(event))
-                        continue
-                    etype = getattr(event, "type", None)
-                    compaction = patch_event_compaction(event)
-                    candidate = (
-                        getattr(event, "text", None)
-                        or getattr(event, "content", None)
-                        or (
-                            " ".join(getattr(event, "parts", []))
-                            if getattr(event, "parts", None)
-                            else None
-                        )
-                    )
-                    if candidate and etype in {"response", "ai_response", "final"}:
-                        if (
-                            confirmation_text
-                            and not message.strip().lower().startswith("show")
-                            and not message.strip().lower().startswith("recommend")
-                        ):
-                            final_text = confirmation_text
-                        else:
-                            final_text = f"{confirmation_text} {candidate}" if confirmation_text else candidate
-                except AttributeError as err:
-                    log_error(
-                        "chat_async_event_attribute_error",
-                        user_id=user_id,
-                        error=str(err),
-                        event_type=str(type(event)),
-                        event_value=repr(event),
-                        session_id=session_id,
-                    )
-                    if "model_copy" in str(err) and isinstance(event, str):
-                        return (
-                            "I apologize, but an internal error occurred in the agent framework. "
-                            "Please report this bug to the maintainers."
-                        )
-                    continue
-
-            if not final_text:
-                log_info("run_async_missing_final_text_fallback_sync")
-                return self._sync_fallback(user_id, message, session_id)
-
-            if not session.history:
-                session.history = []
-            session.history.append({"role": "user", "content": message})
-            session.history.append({"role": "model", "content": final_text})
-            self._session_service.save_session(session)
-
-            log_info(
-                "chat_async_response_generated",
-                user_id=user_id,
-                response_length=len(final_text),
-                session_id=session_id,
-                history_length=len(session.history),
-            )
-
-            return final_text
+            return await asyncio.to_thread(self.chat, user_id, message, session_id)
         except Exception as e:
             log_error(
                 "chat_async_error",
@@ -542,7 +612,6 @@ class ADKOrchestrator:
                 error_type=type(e).__name__,
                 session_id=session_id,
             )
-            # Instead of raising, return a user-friendly error
             return (
                 "I apologize, but I encountered an error while processing your request. "
                 "Please try again or rephrase your question."
@@ -604,104 +673,15 @@ class ADKOrchestrator:
         session_id = session_id or user_id
         seq = 0
         try:
-            session = self._session_service.get_or_create_session(session_id)
-            messages = self._build_messages(session, message)
-            run_method = getattr(self.agent, "run_async", None)
-            if run_method is None:
-                # Fallback: produce final only
-                final_text = self.chat(user_id=user_id, message=message, session_id=session_id)
-                yield {
-                    "type": "final",
-                    "content": final_text,
-                    "seq": seq,
-                }
-                return
-
-            final_text: Optional[str] = None
-            confirmation_text: Optional[str] = None
-            async for event in run_method(message):
-                etype = getattr(event, "type", None)
-                # ADK bug workaround: patch compaction if present
-                compaction = patch_event_compaction(event)
-                candidate = (
-                    getattr(event, "text", None)
-                    or getattr(event, "content", None)
-                    or (
-                        " ".join(getattr(event, "parts", []))
-                        if getattr(event, "parts", None)
-                        else None
-                    )
-                )
-                if etype in {"tool_call"}:
-                    tool_name = getattr(event, "tool_name", None) or getattr(event, "name", "unknown_tool")
-                    yield {
-                        "type": "tool",
-                        "tool": tool_name,
-                        "status": "started",
-                        "content": None,
-                        "seq": seq,
-                    }
-                    seq += 1
-                    continue
-                if etype in {"tool_result"}:
-                    tool_name = getattr(event, "tool_name", None) or getattr(event, "name", "unknown_tool")
-                    # Attempt diff extraction for confirmation frame
-                    raw_payload = None
-                    for attr in ("output", "response", "result", "data"):
-                        raw_payload = getattr(event, attr, None)
-                        if raw_payload:
-                            break
-                    if isinstance(raw_payload, dict) and {"profile", "updated"}.issubset(raw_payload.keys()):
-                        confirmation_text = summarize_profile_update(raw_payload)
-                        yield {
-                            "type": "confirmation",
-                            "content": confirmation_text,
-                            "seq": seq,
-                        }
-                        seq += 1
-                    yield {
-                        "type": "tool",
-                        "tool": tool_name,
-                        "status": "ok",
-                        "content": None,
-                        "seq": seq,
-                    }
-                    seq += 1
-                    continue
-                if etype in {"tool_error"}:
-                    tool_name = getattr(event, "tool_name", None) or getattr(event, "name", "unknown_tool")
-                    yield {
-                        "type": "tool",
-                        "tool": tool_name,
-                        "status": "error",
-                        "content": None,
-                        "seq": seq,
-                    }
-                    seq += 1
-                    continue
-                if candidate and etype not in {"final", "response", "ai_response"}:
-                    # Treat as incremental token chunk
-                    yield {"type": "token", "content": candidate, "seq": seq}
-                    seq += 1
-                if candidate and etype in {"response", "ai_response", "final"}:
-                    if (
-                        confirmation_text
-                        and not message.strip().lower().startswith("show")
-                        and not message.strip().lower().startswith("recommend")
-                    ):
-                        final_text = confirmation_text
-                    else:
-                        final_text = f"{confirmation_text} {candidate}" if confirmation_text else candidate
-            # Emit final frame
-            if final_text is None:
-                final_text = "(no response)"
-            # Persist history
-            if not session.history:
-                session.history = []
-            session.history.append({"role": "user", "content": message})
-            session.history.append({"role": "model", "content": final_text})
-            self._session_service.save_session(session)
-            yield {"type": "final", "content": final_text, "seq": seq}
+            # For now, reuse the synchronous chat path and expose a single final
+            # frame to streaming clients. This avoids depending on ADK's
+            # Agent.run_async API, which has changed across versions.
+            final_text = self.chat(user_id=user_id, message=message, session_id=session_id)
+            yield {
+                "type": "final",
+                "content": final_text,
+                "seq": seq,
+            }
         except Exception as e:
             yield {
                 "type": "error",
@@ -713,7 +693,7 @@ class ADKOrchestrator:
 def create_orchestrator(
     profile_agent: Agent,
     recommender_agent: Agent,
-    model_name: str = "gemini-2.5-flash-exp",
+    model_name: str = "gemini-2.5-flash",
     database_url: Optional[str] = None,
     compaction_interval: int = 5,
     overlap_size: int = 2,
@@ -726,7 +706,7 @@ def create_orchestrator(
     Args:
         profile_agent: Pre-initialized Profile Agent (required)
         recommender_agent: Pre-initialized Recommender Agent (required)
-        model_name: Gemini model to use for orchestrator (default: gemini-2.5-flash-exp)
+        model_name: Gemini model to use for orchestrator (default: gemini-1.5-flash)
         database_url: Optional database URL for session persistence
                      Examples:
                      - "sqlite:///sessions.db" (local SQLite)

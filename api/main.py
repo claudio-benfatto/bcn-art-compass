@@ -16,6 +16,7 @@ from agents.event_ranker import create_event_ranker
 from agents.orchestrator import create_orchestrator
 from agents.profile_agent_adk import create_profile_agent
 from agents.recommender_agent_adk import create_recommender_agent
+from config import should_use_vertex_rag
 from memory.storage import MemoryStorage
 from observability import configure_logging, log_error, log_info, set_correlation_id
 from rag.vector_store import VectorStore
@@ -63,15 +64,36 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         # Initialize dependencies
         storage = MemoryStorage()
-        
-        # Try to initialize vector store (requires chromadb, not available in cloud)
+
+        # Initialize vector store
         vector_store = None
         try:
-            vector_store = VectorStore()  # Uses default settings
-            log_info("vector_store_initialized")
+            if should_use_vertex_rag():
+                # Use Vertex AI Vector Search in cloud / when explicitly enabled.
+                # Import lazily so that environments without Vertex dependencies
+                # (or older Python versions) can still start the API and fall
+                # back to non-RAG behavior instead of failing at import time.
+                try:
+                    from rag.vector_store_vertex import VertexVectorStore  # type: ignore
+
+                    vector_store = VertexVectorStore.from_env()
+                    log_info("vertex_vector_store_initialized")
+                except Exception as ve:
+                    log_error(
+                        "vertex_vector_store_init_failed",
+                        error=str(ve),
+                        error_type=type(ve).__name__,
+                    )
+                    vector_store = None
+            else:
+                # Local ChromaDB-based vector store (for dev environments)
+                vector_store = VectorStore()  # Uses default settings
+                log_info("vector_store_initialized")
         except (ImportError, Exception) as e:
-            log_info("vector_store_unavailable", reason=str(e)[:100])
-        
+            # In Cloud Run we may not have chromadb; in that case we still run
+            # with basic Gemini-only behavior (no RAG).
+            log_info("vector_store_unavailable", reason=str(e)[:200])
+
         event_ranker = create_event_ranker()
 
         log_info(
@@ -81,17 +103,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             has_event_ranker=event_ranker is not None,
         )
 
-        # Create specialized agents
+        # Create specialized agents using library defaults for model names
         profile_agent = create_profile_agent(
             storage=storage,
-            model_name="gemini-2.5-flash-exp"
         )
         log_info("profile_agent_initialized")
 
         recommender_agent = create_recommender_agent(
             vector_store=vector_store,
             event_ranker=event_ranker,
-            model_name="gemini-2.5-flash-exp"
         )
         log_info("recommender_agent_initialized")
 
@@ -100,8 +120,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         orchestrator = create_orchestrator(
             profile_agent=profile_agent,
             recommender_agent=recommender_agent,
-            model_name="gemini-2.5-flash-exp",
-            database_url=database_url
+            database_url=database_url,
         )
         log_info(
             "adk_orchestrator_initialized_with_external_agents",

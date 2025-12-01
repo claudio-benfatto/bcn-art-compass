@@ -93,13 +93,13 @@ If user wants recommendations: explain another agent handles that.
 
 def create_profile_agent(
     storage: Optional[ProfileStorage] = None,
-    model_name: str = "gemini-2.0-flash-exp",
+    model_name: str = "gemini-2.5-pro",
 ) -> Agent:
     """Create the Profile Agent.
 
     Args:
         storage: ProfileStorage instance for user profiles (optional)
-        model_name: Gemini model to use (default: gemini-2.0-flash-exp)
+        model_name: Gemini model to use (default: gemini-1.5-flash)
 
     Returns:
         Configured genai.Agent for profile management

@@ -183,7 +183,6 @@ terraform apply -var="docker_image=gcr.io/bcn-art-compass/bcn-art-compass:new-ta
 **Local Only (No Cloud Costs)**
 ```bash
 # Run everything locally
-ollama serve
 uv run python cli.py
 ```
 

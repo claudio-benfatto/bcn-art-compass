@@ -1,12 +1,12 @@
 """
-Evaluation framework for testing agent quality.
+Evaluation utilities for BCN Art Compass.
 
-This package provides tools for evaluating the multi-agent system
-with predefined test cases and metrics.
+This package currently exposes lightweight tooling for inspecting agent
+and tool trajectories (see `evaluation.tool_trajectories`).
 
-Part of Milestone 7: Final MVP Hardening
+In earlier iterations there was an `agent_eval` module with a richer
+evaluation framework; that has been removed in the MVP refactor. The
+imports have been simplified accordingly.
 """
 
-from evaluation.agent_eval import AgentEvaluator, EvaluationCase
-
-__all__ = ["AgentEvaluator", "EvaluationCase"]
+__all__: list[str] = []

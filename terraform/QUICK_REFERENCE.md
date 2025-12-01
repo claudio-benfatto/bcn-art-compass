@@ -54,7 +54,6 @@ terraform apply
 ### Stage 1: Local Development
 ```bash
 # Zero cost, full functionality
-ollama serve
 uv run python cli.py
 ```
 

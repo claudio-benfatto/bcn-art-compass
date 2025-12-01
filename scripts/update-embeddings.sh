@@ -27,7 +27,7 @@ fi
 
 # Step 1: Regenerate embeddings
 echo -e "${YELLOW}[1/3] Regenerating embeddings from events.yaml...${NC}"
-uv run python scripts/vertex/precompute_embeddings.py
+uv run python scripts/data/prepare_vertex_data.py
 
 if [ ! -f "$EMBEDDINGS_FILE" ]; then
     echo "Error: Failed to generate embeddings file"

@@ -1,6 +1,12 @@
 #!/bin/bash
 # Deploy BCN Art Compass to Google Cloud Run
-# Usage: ./scripts/deploy.sh [PROJECT_ID] [REGION]
+# Usage:
+#   ./scripts/deployment/deploy.sh [PROJECT_ID] [REGION]
+#   ./scripts/deployment/deploy.sh --with-vertex [DEPLOYED_INDEX_ID]
+#
+# When called with --with-vertex, this script delegates to
+# ./scripts/deployment/deploy_with_vertex.sh and ignores PROJECT_ID/REGION
+# arguments (that script uses its own configuration).
 
 set -e
 
@@ -10,15 +16,30 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Flag to toggle Vertex AI deployment
+USE_VERTEX=false
+if [[ "${1:-}" == "--with-vertex" ]]; then
+    USE_VERTEX=true
+    shift
+fi
+
+if [ "$USE_VERTEX" = true ]; then
+    # Optional DEPLOYED_INDEX_ID is now in $1 (if provided)
+    DEPLOYED_INDEX_ID="${1:-}"
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    exec "${SCRIPT_DIR}/deploy_with_vertex.sh" "${DEPLOYED_INDEX_ID}"
+fi
+
 echo -e "${GREEN}🚀 BCN Art Compass - Cloud Run Deployment${NC}"
 echo ""
 
-# Configuration
-PROJECT_ID="${1:-${GOOGLE_CLOUD_PROJECT}}"
-REGION="${2:-us-central1}"
+# Configuration for basic Cloud Run deployment (legacy helper)
+# Default to current GOOGLE_CLOUD_PROJECT or fall back to the known MVP project ID.
+PROJECT_ID="${1:-${GOOGLE_CLOUD_PROJECT:-bcn-art-compass}}"
+REGION="${2:-europe-southwest1}"
 SERVICE_NAME="bcn-art-compass"
 
-# Validate project ID
+# Validate project ID (should rarely be empty now)
 if [ -z "$PROJECT_ID" ]; then
     echo -e "${RED}❌ Error: PROJECT_ID not set${NC}"
     echo "Usage: ./scripts/deploy.sh [PROJECT_ID] [REGION]"

@@ -36,18 +36,14 @@ steps:
       - '--region=$_DEPLOY_REGION'
       - '--platform=managed'
       - '--allow-unauthenticated'
-      - '--memory=512Mi'           # Reduced from 1Gi (minimum for Python apps)
+      - '--memory=1Gi'           # Reduced from 1Gi (minimum for Python apps)
       - '--cpu=1'                  # Reduced from 2 (sufficient for MVP)
       - '--timeout=60'             # Reduced from 300s (1 min should be enough)
       - '--max-instances=1'        # Reduced from 2 (prevent multiple instances)
       - '--min-instances=0'        # Scale to zero when idle
       - '--concurrency=80'         # Default, handle multiple requests per instance
       - '--cpu-throttling'         # Throttle CPU when idle (cost savings)
-      - '--set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID'
-      - '--set-env-vars=GOOGLE_CLOUD_LOCATION=$_DEPLOY_REGION'
-      - '--set-env-vars=USE_FIRESTORE=true'
-      - '--set-env-vars=USE_VERTEX_RAG=false'
-      - '--set-env-vars=USE_LOCAL_LLM=false'
+      - '--set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=$_DEPLOY_REGION,USE_FIRESTORE=true,USE_LOCAL_LLM=false'
       - '--update-secrets=GOOGLE_API_KEY=google-api-key:latest'
     id: 'deploy-cloud-run'
     waitFor: ['push-image']

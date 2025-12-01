@@ -1,14 +1,14 @@
 """Preference extraction interface and implementations.
 
 Provides a standard interface for extracting user preferences from natural language
-using different LLM backends (Gemini, Llama/Ollama, or rule-based fallback).
+using different LLM backends (Gemini or rule-based fallback).
 """
 
 import json
 import os
 import re
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Any, Dict, Protocol
 
 from agents.prompts import get_preference_extraction_prompt
 from observability import log_error, log_info
@@ -18,7 +18,7 @@ class PreferenceExtractor(ABC):
     """Abstract base class for preference extraction."""
 
     @abstractmethod
-    async def extract(self, text: str) -> Dict[str, any]:
+    async def extract(self, text: str) -> Dict[str, Any]:
         """
         Extract preferences from natural language text.
 
@@ -37,10 +37,10 @@ class PreferenceExtractor(ABC):
 class RuleBasedExtractor(PreferenceExtractor):
     """Rule-based preference extraction using keyword matching."""
 
-    async def extract(self, text: str) -> Dict[str, any]:
+    async def extract(self, text: str) -> Dict[str, Any]:
         """Extract preferences using simple rule-based patterns."""
         text_lower = text.lower()
-        result = {
+        result: Dict[str, Any] = {
             "favorite_genres": [],
             "disliked_genres": [],
             "favorite_artists": [],
@@ -86,45 +86,78 @@ class RuleBasedExtractor(PreferenceExtractor):
         return result
 
 
+class PreferenceLlmClient(Protocol):
+    """Minimal protocol for an LLM client used for preference extraction."""
+
+    def generate_json(self, prompt: str) -> str:  # pragma: no cover - interface definition
+        ...
+
+
+def _strip_json_code_fences(result_text: str) -> str:
+    """Strip optional ```json/``` code fences from an LLM JSON response."""
+    text = result_text.strip()
+
+    if text.startswith("```json"):
+        text = text[len("```json") :]
+    elif text.startswith("```"):
+        text = text[3:]
+
+    if text.endswith("```"):
+        text = text[:-3]
+
+    return text.strip()
+
+
 class GeminiPreferenceExtractor(PreferenceExtractor):
     """Preference extractor using Google Gemini."""
 
-    def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "gemini-2.5-flash",
+        client: PreferenceLlmClient | None = None,
+    ):
         """
         Initialize Gemini preference extractor.
 
         Args:
             api_key: Google API key
             model: Gemini model to use
+            client: Optional pre-configured PreferenceLlmClient (for testing or custom wiring)
         """
-        from google import genai
-
-        self.client = genai.Client(api_key=api_key)
         self.model = model
+        if client is not None:
+            self._client = client
+        else:
+            # Import inside to avoid hard dependency during tests that inject a fake client
+            from google import genai  # type: ignore[import-not-found]
+
+            self._client = genai.Client(api_key=api_key)
+
         log_info("preference_extractor_initialized", backend="gemini", model=model)
 
-    async def extract(self, text: str) -> Dict[str, any]:
+    async def extract(self, text: str) -> Dict[str, Any]:
         """Extract preferences using Gemini."""
         prompt = get_preference_extraction_prompt(text)
 
         try:
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=prompt
-            )
-            result_text = response.text.strip()
+            # Call underlying client (can be real Gemini or injected fake)
+            if isinstance(self._client, object) and hasattr(self._client, "models"):
+                # google-genai client path
+                raw_text = self._client.models.generate_content(
+                    model=self.model,
+                    contents=prompt,
+                ).text
+                result_text = (raw_text or "").strip()
+            else:
+                # Protocol-based client (tests) implements generate_json directly
+                result_text = self._client.generate_json(prompt)  # type: ignore[union-attr]
 
             # Clean up response (remove markdown code blocks if present)
-            if result_text.startswith("```json"):
-                result_text = result_text[7:]
-            if result_text.startswith("```"):
-                result_text = result_text[3:]
-            if result_text.endswith("```"):
-                result_text = result_text[:-3]
-            result_text = result_text.strip()
+            cleaned = _strip_json_code_fences(result_text)
 
             # Parse JSON
-            extracted = json.loads(result_text)
+            extracted: Dict[str, Any] = json.loads(cleaned)
             log_info("gemini_preference_extraction_success", has_favorites=len(extracted.get("favorite_genres", [])) > 0)
             return extracted
 
@@ -146,74 +179,11 @@ class GeminiPreferenceExtractor(PreferenceExtractor):
             raise
 
 
-class OllamaPreferenceExtractor(PreferenceExtractor):
-    """Preference extractor using Ollama (local Llama)."""
-
-    def __init__(self, model: str = "llama3.2"):
-        """
-        Initialize Ollama preference extractor.
-
-        Args:
-            model: Ollama model to use
-        """
-        import ollama
-
-        # Test if Ollama is available
-        ollama.list()
-
-        self.client = ollama
-        self.model = model
-        log_info("preference_extractor_initialized", backend="ollama", model=model)
-
-    async def extract(self, text: str) -> Dict[str, any]:
-        """Extract preferences using Ollama."""
-        prompt = get_preference_extraction_prompt(text)
-
-        try:
-            response = self.client.chat(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            result_text = response["message"]["content"].strip()
-
-            # Clean up response
-            if result_text.startswith("```json"):
-                result_text = result_text[7:]
-            if result_text.startswith("```"):
-                result_text = result_text[3:]
-            if result_text.endswith("```"):
-                result_text = result_text[:-3]
-            result_text = result_text.strip()
-
-            # Parse JSON
-            extracted = json.loads(result_text)
-            log_info("ollama_preference_extraction_success", has_favorites=len(extracted.get("favorite_genres", [])) > 0)
-            return extracted
-
-        except json.JSONDecodeError as e:
-            log_error(
-                "ollama_preference_extraction_json_error",
-                error=str(e),
-                error_type="JSONDecodeError",
-                response_text=result_text[:100]
-            )
-            raise
-
-        except Exception as e:
-            log_error(
-                "ollama_preference_extraction_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                model=self.model,
-            )
-            raise
-
-
 def create_preference_extractor(fallback_to_rules: bool = True) -> PreferenceExtractor:
     """
     Factory function to create preference extractor based on environment.
 
-    Prefers Gemini if GOOGLE_API_KEY is set, otherwise tries Ollama.
+    Prefers Gemini if GOOGLE_API_KEY is set otherwise falls back to rule-based extraction.
     Falls back to rule-based if requested and no LLM is available.
 
     Args:
@@ -231,26 +201,14 @@ def create_preference_extractor(fallback_to_rules: bool = True) -> PreferenceExt
         model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         return GeminiPreferenceExtractor(api_key=api_key, model=model)
 
-    # Try Ollama
-    try:
-        model = os.getenv("OLLAMA_MODEL", "llama3.2")
-        return OllamaPreferenceExtractor(model=model)
-    except Exception as e:
-        if fallback_to_rules:
-            log_info(
-                "preference_extractor_fallback",
-                message="No LLM available, using rule-based extraction",
-                reason=str(e)
-            )
-            return RuleBasedExtractor()
-        else:
-            log_error(
-                "preference_extractor_creation_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                message="No suitable preference extractor available"
-            )
-            raise RuntimeError(
-                "Preference extraction requires either GOOGLE_API_KEY (for Gemini) "
-                "or Ollama (for local Llama). Please configure one of these options."
-            ) from e
+    elif fallback_to_rules:
+        log_info(
+            "preference_extractor_fallback",
+            message="No LLM available, using rule-based extraction",
+        )
+        return RuleBasedExtractor()
+ 
+    raise RuntimeError(
+        "Preference extraction requires GOOGLE_API_KEY (for Gemini) of fallback_to_rules set to True"
+        "Please configure one of these options."
+    )

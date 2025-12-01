@@ -2,14 +2,6 @@
 
 These tools calculate distances between user coordinates and event venues,
 supporting both single and batch operations for efficiency.
-
-Best Practices Implemented:
-- Clear, descriptive function names and docstrings
-- Specific parameter types (float, not Any)
-- Return structured data (dict with clear keys)
-- Graceful error handling for missing coordinates
-- Human-readable categories in addition to numeric values
-- Logging for observability
 """
 
 from math import asin, cos, radians, sin, sqrt
@@ -17,6 +9,7 @@ from typing import Any
 
 from observability import log_error, log_info
 
+EARTH_RADIUS_KM = 6371.0  # Average radius of Earth in kilometers
 
 def _haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calculate distance between two coordinates using Haversine formula.
@@ -47,7 +40,7 @@ def _haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> f
         c = 2 * asin(sqrt(a))
 
         # Radius of earth in kilometers
-        r = 6371
+        r = EARTH_RADIUS_KM
 
         return round(c * r, 2)
     except Exception as e:
